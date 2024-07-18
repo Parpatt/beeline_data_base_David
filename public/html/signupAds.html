@@ -1,0 +1,40 @@
+{{define "signup"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+<body>
+
+<form id="adsForm" name="addAdsForm" action="/signupAds" method="post" >
+    <label for="title">Заголовок</label><br>
+    <input type="text" id="title" name="title" required><br>
+    
+    <label for="description">Описание</label><br>
+    <input type="text" id="description" name="description" required><br>
+
+    <label for="hourly_rate">Почасовая ставка</label><br>
+    <input type="text" id="hourly_rate" name="hourly_rate" required><br>
+
+    <label for="daily_rate">Суточная ставка</label><br>
+    <input type="text" id="daily_rate" name="daily_rate" required><br>
+
+    <label for="category_id">Категория</label><br>
+    <input type="text" id="category_id" name="category_id" required><br>
+
+    <label for="location">Место дислокации</label><br>
+    <input type="text" id="location" name="location" required><br>
+    <br>
+    <button type="submit" name="submitBtn">Добавить</button>
+</form>
+
+{{if . }}
+<div>
+    {{.Message}}
+</div>
+{{end}}
+
+</body>
+</html>
+{{end}}

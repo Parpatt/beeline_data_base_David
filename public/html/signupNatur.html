@@ -1,0 +1,43 @@
+{{define "signup"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+<body>
+
+<form id="loginForm" name="signUpForm" action="/signupNatur" method="post" >
+    <label for="surname">Фамилия</label><br>
+    <input type="text" id="surname" name="surname" required><br>
+    
+    <label for="name">Имя</label><br>
+    <input type="text" id="name" name="name" required><br>
+
+    <label for="patronymic">Отчество</label><br>
+    <input type="text" id="patronymic" name="patronymic" required><br>
+
+    <label for="email">Почта</label><br>
+    <input type="text" id="email" name="email" required><br>
+
+    <label for="phoneNum">Номер телефона</label><br>
+    <input type="text" id="phoneNum" name="phoneNum" required><br>
+
+    <label for="password">Пароль</label><br>
+    <input type="password" id="password" name="password" required><br>
+
+    <label for="password2">Повторите пароль</label><br>
+    <input type="password" id="password2" name="password2" required><br>
+    <br>
+    <button type="submit" name="submitBtn">Зарегистрироваться</button>
+</form>
+
+{{if . }}
+<div>
+    {{.Message}}
+</div>
+{{end}}
+
+</body>
+</html>
+{{end}}

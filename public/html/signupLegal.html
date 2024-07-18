@@ -1,0 +1,43 @@
+{{define "signup"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+<body>
+
+<form id="loginForm" name="signUpForm" action="/signupLegal" method="post" >
+    <label for="ind_num_taxp">ИНН</label><br>
+    <input type="text" id="ind_num_taxp" name="ind_num_taxp" required><br>
+    
+    <label for="name_of_company">Наименование компании</label><br>
+    <input type="text" id="name_of_company" name="name_of_company" required><br>
+
+    <label for="address_name">Адрес</label><br>
+    <input type="text" id="address_name" name="address_name" required><br>
+
+    <label for="email">Почта</label><br>
+    <input type="text" id="email" name="email" required><br>
+
+    <label for="phoneNum">Номер телефона</label><br>
+    <input type="text" id="phoneNum" name="phoneNum" required><br>
+
+    <label for="password">Пароль</label><br>
+    <input type="password" id="password" name="password" required><br>
+
+    <label for="password2">Повторите пароль</label><br>
+    <input type="password" id="password2" name="password2" required><br>
+    <br>
+    <button type="submit" name="submitBtn">Зарегистрироваться</button>
+</form>
+
+{{if . }}
+<div>
+    {{.Message}}
+</div>
+{{end}}
+
+</body>
+</html>
+{{end}}
