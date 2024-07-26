@@ -119,6 +119,9 @@ func (a app) Routes(r *httprouter.Router) {
 	r.GET("/regNewChat", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.RegNewChatGET(rw, "")
 	})
+	r.GET("/sendMessage", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SendMessageGET(rw, "")
+	})
 
 	r.POST("/signupLegal", a.SignupLegalPOST) //передача данных Юридического лица 		(регистрация)
 	r.POST("/signupNatur", a.SignupNaturPOST) //передача данных Физического лица		(регистрация)
@@ -149,6 +152,7 @@ func (a app) Routes(r *httprouter.Router) {
 
 	//Chats
 	r.POST("/regNewChat", a.RegNewChatPOST)
+	r.POST("/sendMessage", a.SendMessagePOST)
 }
 
 func (a app) PageMenuNavigation(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
