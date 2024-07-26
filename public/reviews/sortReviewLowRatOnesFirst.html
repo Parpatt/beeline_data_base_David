@@ -1,0 +1,25 @@
+{{define "login"}}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+
+<body>
+
+    <form id="sortReviewLowRatOnesFirst" name="sortReviewLowRatOnesFirst" action="/sortReviewLowRatOnesFirst" method="post">
+        <button type="togin" name="submitBtn">Добавить</button>
+    </form>
+
+    {{if . }}
+    <div>
+        {{.Message}}
+    </div>
+    {{end}}
+
+</body>
+
+</html>
+{{end}}

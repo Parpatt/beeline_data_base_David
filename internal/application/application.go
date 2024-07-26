@@ -2,298 +2,157 @@ package application
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"html/template"
-	"log"
 	"net/http"
 	"net/url"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/julienschmidt/httprouter"
 
-	"myproject/internal/jwt"
 	"myproject/internal/repository"
 )
 
-type app struct {
-	ctx   context.Context
-	repo  *repository.Repository
-	cache map[string]repository.User
+// "SELECT id, hourly_rate FROM Ads.ads GROUP BY id ORDER BY hourly_rate DESC;",
+type app struct { //структура приложеия
+	ctx   context.Context            //
+	repo  *repository.Repository     //
+	cache map[string]repository.User //карта, хранящая User сткуртуру
 }
 
 func (a app) Routes(r *httprouter.Router) {
 	r.ServeFiles("/public/*filepath", http.Dir("public"))
-	r.GET("/", a.authorized(a.StartPage))
-	r.GET("/login", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.LoginPage(rw, "")
+
+	r.GET("/", a.authorized(a.StartPage)) //вызывает функцию authorized(a.StartPage) при адресе "/"
+	r.GET("/login",                       //вызывает функцию LoginPage() при адресе "/login"
+		func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+			a.LoginGET(rw, "")
+		},
+	)
+	r.GET("/logout", a.Logout) //вызывает функцию Logout при адресе "/logout"
+	r.GET("/signupNatur",      //вызывает функцию SignupNaturPage при адресе "/signupNatur"
+		func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+			a.SignupNaturGET(rw, "")
+		},
+	)
+	r.GET("/signupLegal", //вызывает функцию SignupLegalPage при адресе "/signupLegal"
+		func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+			a.SignupLegalGET(rw, "")
+		},
+	)
+	r.GET("/pageMenu", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.PageMenuGET(rw, "")
 	})
-	r.POST("/login", a.Login)  //Лист чтобы залогиниться
-	r.GET("/logout", a.Logout) //
-	r.GET("/signupNatur", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.SignupNaturPage(rw, "")
+	r.GET("/sigAds", //вызывает функцию SignupAdsPage при адресе "/sigAds"
+		func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+			a.SignupAdsGET(rw, "")
+		},
+	)
+	r.GET("/delAds", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.DeleteAdsGET(rw, "")
 	})
-	r.GET("/signupLegal", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.SignupLegalPage(rw, "")
+	r.GET("/addFavorite", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.AddFavoriteGET(rw, "")
 	})
-	r.GET("/signupAds", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.SignupAdsPage(rw, "")
+	r.GET("/delFavorite", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.DelFavoriteGET(rw, "")
 	})
-	r.POST("/signupLegal", a.SignupLegal) //создание Юридического лица
-	r.POST("/signupNatur", a.SignupNatur) //создание Физического лица
-	r.POST("/signupAds", a.Add_ads)       //создание Объявления
+	r.GET("/addReview", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.AddReviewsGET(rw, "")
+	})
+	r.GET("/updReview", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.UpdReviewsGET(rw, "")
+	})
+	r.GET("/groupByHourlyRate", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.GroupByHourlyRateGET(rw, "")
+	})
+	r.GET("/groupByDailyRate", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.GroupByDailyRateGET(rw, "")
+	})
+	r.GET("/groupByCategory", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.GroupByCategoryGET(rw, "")
+	})
+	r.GET("/groupByLocation", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.GroupByLocatGET(rw, "")
+	})
+	r.GET("/sortFavByRecent", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SortFavByRecentGET(rw, "")
+	})
+	r.GET("/sortFavByCheaper", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SortFavByCheaperGET(rw, "")
+	})
+	r.GET("/sortFavByDearly", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SortFavByDearlyGET(rw, "")
+	})
+	r.GET("/sortReviewNewOnesFirst", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SortReviewNewOnesFirstGET(rw, "")
+	})
+	r.GET("/sortReviewOldOnesFirst", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SortReviewOldOnesFirstGET(rw, "")
+	})
+	r.GET("/sortReviewLowRatOnesFirst", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SortReviewLowRatOnesFirstGET(rw, "")
+	})
+	r.GET("/sortReviewHigRatOnesFirst", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SortReviewHigRatOnesFirstGET(rw, "")
+	})
+	r.GET("/groupAdsByRented", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.GroupAdsByRentedGET(rw, "")
+	})
+	r.GET("/groupAdsByArchived", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.GroupAdsByArchivedGET(rw, "")
+	})
+	r.GET("/registerRented", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.RegisterRentedGET(rw, "")
+	})
+	r.GET("/rebookRented", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.RebookRentedGET(rw, "")
+	})
+	r.GET("/groupOrdersByRented", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.GroupOrdersByRentedGET(rw, "")
+	})
+	r.GET("/groupOrdersByUnRented", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.GroupOrdersByUnRentedGET(rw, "")
+	})
+
+	//Chats
+	r.GET("/regNewChat", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.RegNewChatGET(rw, "")
+	})
+
+	r.POST("/signupLegal", a.SignupLegalPOST) //передача данных Юридического лица 		(регистрация)
+	r.POST("/signupNatur", a.SignupNaturPOST) //передача данных Физического лица		(регистрация)
+	r.POST("/sigAds", a.AddAdsPOST)           //передача данных Объявления				(регистрация)
+	r.POST("/login", a.LoginPOST)             //передача данных Для входа в систему		(вход)
+	r.POST("/delAds", a.DeleteAdsPOST)
+	r.POST("/addFavorite", a.AddFavoritePOST)
+	r.POST("/delFavorite", a.DelFavoritePOST)
+	r.POST("/addReview", a.AddReviewsPOST)
+	r.POST("/updReview", a.UpdReviewsPOST)
+	r.POST("/groupByHourlyRate", a.GroupByHourlyRatePOST)
+	r.POST("/groupByDailyRate", a.GroupByDailyRatePOST)
+	r.POST("/groupByCategory", a.GroupByCategoryPOST)
+	r.POST("/groupByLocat", a.GroupByLocatPOST)
+	r.POST("/sortFavByRecent", a.SortFavByRecentPOST)
+	r.POST("/sortFavByCheaper", a.SortFavByCheaperPOST)
+	r.POST("/sortFavByDearly", a.SortFavByDearlyPOST)
+	r.POST("/sortReviewNewOnesFirst", a.SortReviewNewOnesFirstPOST)
+	r.POST("/sortReviewOldOnesFirst", a.SortReviewOldOnesFirstPOST)
+	r.POST("/sortReviewLowRatOnesFirst", a.SortReviewLowRatOnesFirstPOST)
+	r.POST("/sortReviewHigRatOnesFirst", a.SortReviewHigRatOnesFirstPOST)
+	r.POST("/groupAdsByRented", a.GroupAdsByRentedPOST)
+	r.POST("/groupAdsByArchived", a.GroupAdsByArchivedPOST)
+	r.POST("/registerRented", a.RegisterRentedPOST)
+	r.POST("/rebookRented", a.RebookRentedPOST)
+	r.POST("/groupOrdersByRented", a.GroupOrdersByRentedPOST)
+	r.POST("/groupOrdersByUnRented", a.GroupOrdersByUnRentedPOST)
+
+	//Chats
+	r.POST("/regNewChat", a.RegNewChatPOST)
 }
 
-func (a app) authorized(next httprouter.Handle) httprouter.Handle {
-	return func(rw http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-		token, err := readCookie("token", r)
-		if err != nil {
-			http.Redirect(rw, r, "/login", http.StatusSeeOther)
-			return
-		}
-
-		if _, ok := a.cache[token]; !ok {
-			http.Redirect(rw, r, "/login", http.StatusSeeOther)
-			return
-		}
-
-		log.Println("Authorization successful")
-		next(rw, r, ps)
-	}
-}
-
-func (a app) LoginPage(rw http.ResponseWriter, message string) {
-	lp := filepath.Join("public", "html", "login.html")
-
-	tmpl, err := template.ParseFiles(lp)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	type answer struct {
-		Message string
-	}
-	data := answer{message}
-
-	err = tmpl.ExecuteTemplate(rw, "login", data)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-}
-
-func (a app) Login(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	login := r.FormValue("email")
-	password := r.FormValue("password")
-
-	if login == "" || password == "" {
-		a.LoginPage(rw, "Необходимо указать логин и пароль!")
-		return
-	}
-
-	hash := md5.Sum([]byte(password))
-	hashedPass := hex.EncodeToString(hash[:])
-
-	user, err := a.repo.Login(a.ctx, login, hashedPass)
-	if err != nil {
-		a.LoginPage(rw, "Вы ввели неверный логин или пароль!")
-		return
-	}
-
-	//логин и пароль совпадают, поэтому генерируем токен, пишем его в кеш и в куки
-	validToken, err := jwt.GenerateJWT("имя") //получаем токен в строковом типе
-	if err != nil {
-		fmt.Fprintf(rw, err.Error()) //выводим ошибку, при её наличии,
-	}
-	fmt.Fprintf(rw, validToken)
-
-	a.cache[validToken] = user
-
-	livingTime := 60 * time.Minute
-	expiration := time.Now().Add(livingTime)
-
-	//кука будет жить 1 час
-	cookie := http.Cookie{Name: "token", Value: url.QueryEscape(validToken), Expires: expiration}
-	http.SetCookie(rw, &cookie)
-	http.Redirect(rw, r, "/", http.StatusSeeOther)
-}
-
-func (a app) Logout(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	for _, v := range r.Cookies() {
-		c := http.Cookie{
-			Name:   v.Name,
-			MaxAge: -1}
-		http.SetCookie(rw, &c)
-	}
-	http.Redirect(rw, r, "/login", http.StatusSeeOther)
-}
-
-func (a app) SignupNaturPage(rw http.ResponseWriter, message string) {
-	sp := filepath.Join("public", "html", "signupNatur.html")
-
-	tmpl, err := template.ParseFiles(sp)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	type answer struct {
-		Message string
-	}
-	data := answer{message}
-
-	err = tmpl.ExecuteTemplate(rw, "signup", data)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-}
-
-func (a app) SignupLegalPage(rw http.ResponseWriter, message string) {
-	sp := filepath.Join("public", "html", "signupLegal.html")
-
-	tmpl, err := template.ParseFiles(sp)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	type answer struct {
-		Message string
-	}
-	data := answer{message}
-
-	err = tmpl.ExecuteTemplate(rw, "signup", data)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-}
-
-func (a app) SignupAdsPage(rw http.ResponseWriter, message string) {
-	sp := filepath.Join("public", "html", "signupAds.html")
-
-	tmpl, err := template.ParseFiles(sp)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	type answer struct {
-		Message string
-	}
-	data := answer{message}
-
-	err = tmpl.ExecuteTemplate(rw, "signup", data)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-}
-
-func (a app) SignupNatur(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	name := strings.TrimSpace(r.FormValue("name"))
-	surname := strings.TrimSpace(r.FormValue("surname"))
-	patronymic := strings.TrimSpace(r.FormValue("patronymic"))
-	email := strings.TrimSpace(r.FormValue("email"))
-	phoneNum := strings.TrimSpace(r.FormValue("phoneNum"))
-	password := strings.TrimSpace(r.FormValue("password"))
-	password2 := strings.TrimSpace(r.FormValue("password2"))
-
-	if name == "" || surname == "" || patronymic == "" || email == "" || phoneNum == "" || password == "" {
-		a.SignupNaturPage(rw, "Все поля должны быть заполнены!")
-		return
-	}
-
-	if password != password2 {
-		a.SignupNaturPage(rw, "Пароли не совпадают! Попробуйте еще")
-		return
-	}
-
-	hash := md5.Sum([]byte(password))
-	hashedPass := hex.EncodeToString(hash[:])
-
-	err := a.repo.AddNewNaturUser(a.ctx, name, surname, patronymic, email, phoneNum, hashedPass)
-	if err != nil {
-		a.SignupNaturPage(rw, fmt.Sprintf("Ошибка создания пользователя: %v", err))
-		return
-	}
-
-	a.LoginPage(rw, fmt.Sprintf("%s, вы успешно зарегистрированы! Теперь вам доступен вход через страницу авторизации.", name))
-}
-
-func (a app) SignupLegal(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	ind_num_taxp := strings.TrimSpace(r.FormValue("ind_num_taxp"))
-	name_of_company := strings.TrimSpace(r.FormValue("name_of_company"))
-	address_name := strings.TrimSpace(r.FormValue("address_name"))
-	email := strings.TrimSpace(r.FormValue("email"))
-	phoneNum := strings.TrimSpace(r.FormValue("phoneNum"))
-	password := strings.TrimSpace(r.FormValue("password"))
-	password2 := strings.TrimSpace(r.FormValue("password2"))
-
-	if ind_num_taxp == "" || name_of_company == "" || address_name == "" || email == "" || phoneNum == "" || password == "" {
-		a.SignupLegalPage(rw, "Все поля должны быть заполнены!")
-		return
-	}
-
-	if password != password2 {
-		a.SignupLegalPage(rw, "Пароли не совпадают! Попробуйте еще")
-		return
-	}
-
-	hash := md5.Sum([]byte(password))
-	hashedPass := hex.EncodeToString(hash[:])
-
-	err := a.repo.AddNewLegalUser(a.ctx, ind_num_taxp, name_of_company, address_name, email, phoneNum, hashedPass)
-	if err != nil {
-		a.SignupLegalPage(rw, fmt.Sprintf("Ошибка создания пользователя: %v", err))
-		return
-	}
-
-	a.LoginPage(rw, fmt.Sprintf("%s, вы успешно зарегистрированы! Теперь вам доступен вход через страницу авторизации.", name_of_company))
-}
-
-func (a app) Add_ads(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	title := strings.TrimSpace(r.FormValue("title"))
-	description := strings.TrimSpace(r.FormValue("description"))
-	hourly_rate := strings.TrimSpace(r.FormValue("hourly_rate"))
-	daily_rate := strings.TrimSpace(r.FormValue("daily_rate"))
-	owner_id := 29
-	category_id := strings.TrimSpace(r.FormValue("category_id"))
-	location := strings.TrimSpace(r.FormValue("location"))
-	created_at := time.Now()
-	updated_at := time.Now()
-	status := 1
-
-	if title == "" || description == "" ||
-		hourly_rate == "" || daily_rate == "" ||
-		owner_id == 0 || category_id == "" ||
-		location == "" || status == 0 {
-		a.SignupAdsPage(rw, "Все поля должны быть заполнены!")
-		return
-	}
-
-	int_hourly_rate, _ := strconv.Atoi(hourly_rate)
-	int_daily_rate, _ := strconv.Atoi(daily_rate)
-	int_category_id, _ := strconv.Atoi(category_id)
-
-	err := a.repo.AddNewAds(a.ctx, title, description, int_hourly_rate, int_daily_rate, owner_id, int_category_id, location, created_at, updated_at, status)
-	if err != nil {
-		a.SignupAdsPage(rw, fmt.Sprintf("Ошибка создания пользователя: %v", err))
-		return
-	}
-
-	token, err := readCookie("token", r)
-	a.LoginPage(rw, fmt.Sprintf(a.cache[token].Name))
-	a.LoginPage(rw, fmt.Sprintf(err.Error()))
+func (a app) PageMenuNavigation(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+	fmt.Fprintf(rw, "")
 }
 
 func (a app) StartPage(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
@@ -302,17 +161,17 @@ func (a app) StartPage(rw http.ResponseWriter, r *http.Request, p httprouter.Par
 
 func readCookie(name string, r *http.Request) (value string, err error) {
 	if name == "" {
-		log.Println("Trying to read an empty cookie name")
+		// log.Println("Trying to read an empty cookie name")
 		return value, errors.New("you are trying to read empty cookie")
 	}
 	cookie, err := r.Cookie(name)
 	if err != nil {
-		log.Printf("Cookie %s not found: %v\n", name, err)
+		// log.Printf("Cookie %s not found: %v\n", name, err)
 		return value, err
 	}
 	str := cookie.Value
 	value, _ = url.QueryUnescape(str)
-	log.Printf("Cookie %s found with value: %s\n", name, value)
+	// log.Printf("Cookie %s found with value: %s\n", name, value)
 	return value, err
 }
 

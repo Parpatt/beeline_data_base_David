@@ -1,0 +1,25 @@
+{{define "delete"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+<body>
+
+<form id="delAds" name="delAds" action="/delAds" method="post" >
+    <label for="id">id объявления</label><br>
+    <input type="text" id="id" name="id" required><br>
+
+    <button type="submit" name="submitBtn">Добавить</button>
+</form>
+
+{{if . }}
+<div>
+    {{.Message}}
+</div>
+{{end}}
+
+</body>
+</html>
+{{end}}

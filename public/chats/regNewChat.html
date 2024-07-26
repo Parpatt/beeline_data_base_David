@@ -1,0 +1,29 @@
+{{define "signup"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+<body>
+
+<form id="regNewChat" name="regNewChat" action="/regNewChat" method="post" >
+    <label for="id_user">ваш id</label><br>
+    <input type="text" id="id_user" name="id_user" required><br>
+
+    <label for="id_buddy">вашего собеседника</label><br>
+    <input type="text" id="id_buddy" name="id_buddy" required><br>
+
+    <br>
+    <button type="submit" name="submitBtn">Зарегистрироваться</button>
+</form>
+
+{{if . }}
+<div>
+    {{.Message}}
+</div>
+{{end}}
+
+</body>
+</html>
+{{end}}

@@ -1,0 +1,31 @@
+{{define "update"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+<body>
+
+<form id="updReview" name="updReview" action="/updReview" method="post" >
+    <label for="review_id">id отзыва</label><br>
+    <input type="text" id="review_id" name="review_id" required><br>
+
+    <label for="rating">Рейтинг</label><br>
+    <input type="text" id="rating" name="rating" required><br>
+
+    <label for="comment">Комментарий</label><br>
+    <input type="text" id="comment" name="comment" required><br>
+
+    <button type="submit" name="submitBtn">Добавить</button>
+</form>
+
+{{if . }}
+<div>
+    {{.Message}}
+</div>
+{{end}}
+
+</body>
+</html>
+{{end}}

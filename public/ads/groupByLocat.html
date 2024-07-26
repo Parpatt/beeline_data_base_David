@@ -1,0 +1,28 @@
+{{define "login"}}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+
+<body>
+
+    <form id="groupByLocat" name="groupByLocat" action="/groupByLocat" method="post">
+        <label for="location">Искать в:</label><br>
+        <input type="text" id="location" name="location" required><br>
+
+        <button type="togin" name="submitBtn">Добавить</button>
+    </form>
+
+    {{if . }}
+    <div>
+        {{.Message}}
+    </div>
+    {{end}}
+
+</body>
+
+</html>
+{{end}}

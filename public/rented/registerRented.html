@@ -1,0 +1,37 @@
+{{define "signup"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+<body>
+
+<form id="registerRented" name="registerRented" action="/registerRented" method="post" >
+    <label for="ad_id">id ads</label><br>
+    <input type="text" id="ad_id" name="ad_id" required><br>
+
+    <label for="renter_id">id юзера</label><br>
+    <input type="text" id="renter_id" name="renter_id" required><br>
+
+    <label for="total_price">price</label><br>
+    <input type="text" id="total_price" name="total_price" required><br>
+
+    <label for="starts_at">starts_at</label><br>
+    <input type="text" id="starts_at" name="starts_at" required><br>
+
+    <label for="ends_at">ends_at</label><br>
+    <input type="text" id="ends_at" name="ends_at" required><br>
+
+    <button type="submit" name="submitBtn">Зарегистрировать</button>
+</form>
+
+{{if . }}
+<div>
+    {{.Message}}
+</div>
+{{end}}
+
+</body>
+</html>
+{{end}}

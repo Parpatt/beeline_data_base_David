@@ -1,0 +1,37 @@
+{{define "signup"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+<body>
+
+<form id="rebookRented" name="rebookRented" action="/rebookRented" method="post" >
+    <label for="id_old_book">id бронирования, которое нужно перенести</label><br>
+    <input type="text" id="id_old_book" name="id_old_book" required><br>
+
+    <label for="id_user">id юзера</label><br>
+    <input type="text" id="id_user" name="id_user" required><br>
+
+    <label for="starts_at">starts_at</label><br>
+    <input type="text" id="starts_at" name="starts_at" required><br>
+
+    <label for="ends_at">ends_at</label><br>
+    <input type="text" id="ends_at" name="ends_at" required><br>
+
+    <label for="amount">amount</label><br>
+    <input type="text" id="amount" name="amount" required><br>
+
+    <button type="submit" name="submitBtn">Зарегистрировать</button>
+</form>
+
+{{if . }}
+<div>
+    {{.Message}}
+</div>
+{{end}}
+
+</body>
+</html>
+{{end}}
