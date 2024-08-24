@@ -61,6 +61,10 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 	r.POST("/sigAds", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SignupAdsPOST(rw, r)
 	}) //размещение(добавление) объявления
+
+	r.POST("/searchForTech", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SearchForTechPOST(rw, r)
+	}) //поиск объявления
 }
 
 func PageMenuNavigation(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {

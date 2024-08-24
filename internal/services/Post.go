@@ -247,3 +247,23 @@ func (a *MyApp) SignupAdsPOST(rw http.ResponseWriter, r *http.Request) {
 	}
 	//}
 }
+
+type Title struct {
+	Title string `json:"Title"`
+}
+
+func (a *MyApp) SearchForTechPOST(rw http.ResponseWriter, r *http.Request) {
+	var title Title
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&title)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	err = repo.SearchForTechSQL(a.app.Ctx, title.Title, rw, a.app.Repo.Pool)
+	errorr(err)
+}

@@ -201,7 +201,6 @@ func (repo *MyRepository) PrintAdsSQL(ctx context.Context, rw http.ResponseWrite
 
 		return err
 	} else {
-		fmt.Println(prod[0])
 		response := Response{
 			Status:  "success",
 			Data:    prod[0],
@@ -364,6 +363,65 @@ func (repo *MyRepository) SignupAdsSQL(ctx context.Context, title string, descri
 		response := Response{
 			Status:  "success",
 			Data:    ad_id,
+			Message: "Объявление показано",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+
+		return err
+	}
+}
+
+type Int struct {
+	Ads_id int `json:"Ads_id"`
+}
+
+func (repo *MyRepository) SearchForTechSQL(ctx context.Context, title string, rw http.ResponseWriter, rep *pgxpool.Pool) (err error) {
+	products := []Int{}
+
+	request, err := rep.Query(ctx, `
+			SELECT ads.id FROM ads.ads WHERE ads.title ILIKE '%' || $1 || '%';
+		`,
+		title,
+	)
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	for request.Next() {
+		p := Int{}
+		err := request.Scan(
+			&p.Ads_id,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+		products = append(products, p)
+	}
+
+	type Response struct {
+		Status  string `json:"status"`
+		Data    []Int  `json:"data,omitempty"`
+		Message string `json:"message"`
+	}
+	fmt.Println(products)
+	if err != nil || len(products) <= 0 {
+		response := Response{
+			Status:  "fatal",
+			Message: "Объявление не найдено",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+
+		return err
+	} else {
+		response := Response{
+			Status:  "success",
+			Data:    products,
 			Message: "Объявление показано",
 		}
 
