@@ -1,0 +1,25 @@
+{{define "login"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+<body>
+
+<form id="report" name="report" action="/report" method="post" >
+    <label for="report_id">id отчётa</label><br>
+    <input type="text" id="report_id" name="report_id" required><br>
+
+    <button type="submit" name="submitBtn">Показать</button>
+</form>
+
+{{if . }}
+<div>
+    {{.Message}}
+</div>
+{{end}}
+
+</body>
+</html>
+{{end}}

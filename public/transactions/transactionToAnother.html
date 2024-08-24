@@ -1,0 +1,28 @@
+{{define "login"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+<body>
+
+<form id="transactionToAnother" name="transactionToAnother" action="/transactionToAnother" method="post" >
+    <label for="amount">сумма перевода</label><br>
+    <input type="text" id="amount" name="amount" required><br>
+
+    <label for="user_2">id пользователя</label><br>
+    <input type="text" id="user_2" name="user_2" required><br>
+
+    <button type="submit" name="submitBtn">Показать</button>
+</form>
+
+{{if . }}
+<div>
+    {{.Message}}
+</div>
+{{end}}
+
+</body>
+</html>
+{{end}}

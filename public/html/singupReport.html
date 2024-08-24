@@ -1,0 +1,25 @@
+{{define "singup"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+<body>
+
+<form id="singupReport" name="singupReport" action="/singupReport" method="post" >
+    <label for="order_id">id сделки по которой вы хотите сформировать отчёт</label><br>
+    <input type="text" id="order_id" name="order_id" required><br>
+
+    <button type="submit" name="submitBtn">Добавить</button>
+</form>
+
+{{if . }}
+<div>
+    {{.Message}}
+</div>
+{{end}}
+
+</body>
+</html>
+{{end}}

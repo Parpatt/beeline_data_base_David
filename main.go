@@ -8,22 +8,22 @@ import (
 
 	"github.com/julienschmidt/httprouter"
 
-	"myproject/internal/application"
-	"myproject/internal/repository"
+	"myproject/internal/app"
+	"myproject/internal/database"
 )
 
 func main() {
 	ctx := context.Background()
 
-	dbpool, err := repository.InitDBConn(ctx)
+	dbpool, err := database.InitDBConn(ctx)
 	if err != nil {
 		log.Fatalf("%w failed to init DB connection", err)
 	}
 	defer dbpool.Close()
 
-	a := application.NewApp(ctx, dbpool)
+	a := app.NewApp(ctx, dbpool)
 	r := httprouter.New()
-	a.Routes(r)
+	a.Routes(r, ctx, dbpool)
 
 	srv := &http.Server{Addr: "0.0.0.0:8080", Handler: r}
 	fmt.Println("It is alive! Try http://localhost:8080")

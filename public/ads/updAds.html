@@ -1,0 +1,39 @@
+{{define "update"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login page</title>
+</head>
+<body>
+
+    <form id="updAds" name="updAds" action="/updAds" method="post" >
+    <label for="ad_id">id объявления</label><br>
+    <input type="text" id="ad_id" name="ad_id" required><br>
+
+    <label for="title">Новый заголовок</label><br>
+    <input type="text" id="title" name="title" required><br>
+
+    <label for="description">Новое описание</label><br>
+    <input type="text" id="description" name="description" required><br>
+
+    <label for="hourly_rate">Почасовая ставка</label><br>
+    <input type="text" id="hourly_rate" name="hourly_rate" required><br>
+
+    <label for="daily_rate">Суточная ставка</label><br>
+    <input type="text" id="daily_rate" name="daily_rate" required><br>
+
+    <label for="category_id">Категория</label><br>
+    <input type="text" id="category_id" name="category_id" required><br>
+
+    <label for="location">Новая локация</label><br>
+    <input type="text" id="location" name="location" required><br>
+
+    <label for="photoPwd">Путь к фото(если добавляете)</label><br>
+    <input type="text" id="photoPwd" name="photoPwd" required><br>
+
+    <button type="submit" name="submitBtn">Добавить</button>
+
+</body>
+</html>
+{{end}}

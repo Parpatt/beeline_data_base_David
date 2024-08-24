@@ -1,0 +1,28 @@
+{{define "login"}}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+
+<body>
+
+    <form id="printAds" name="printAds" action="/printAds" method="post">
+        <label for="ads_id">id объявления:</label><br>
+        <input type="text" id="ads_id" name="ads_id" required><br>
+
+        <button type="togin" name="submitBtn">Добавить</button>
+    </form>
+
+    {{if . }}
+    <div>
+        {{.Message}}
+    </div>
+    {{end}}
+
+</body>
+
+</html>
+{{end}}

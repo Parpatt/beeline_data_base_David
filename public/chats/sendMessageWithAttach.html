@@ -1,0 +1,28 @@
+{{define "signup"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign up page</title>
+</head>
+<body>
+
+<form id="sendMessageWithAttach" name="sendMessageWithAttach" action="/sendMessageWithAttach" method="post" >
+    <label for="id_chat">id чата</label><br>
+    <input type="text" id="id_chat" name="id_chat" required><br>
+
+    <label for="text">текст</label><br>
+    <input type="text" id="text" name="text" required><br>
+    <br>
+    <button type="submit" name="submitBtn">Зарегистрироваться</button>
+</form>
+
+{{if . }}
+<div>
+    {{.Message}}
+</div>
+{{end}}
+
+</body>
+</html>
+{{end}}

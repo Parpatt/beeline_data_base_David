@@ -2,17 +2,25 @@ package jwt
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
 	"github.com/golang-jwt/jwt"
 )
 
+// MyCustomClaims - структура для хранения утверждений токена
+type MyCustomClaims struct {
+	Foo string `json:"foo"`
+	jwt.StandardClaims
+}
+
 var mySigningKey = []byte("superSecretKey") //секретнйы ключь для подписи
 
-func GenerateJWT(name string) (string, error) { //функция, которая возвращает строковый формат JWT
+func GenerateJWT(name string, user_id int) (string, error) { //функция, которая возвращает строковый формат JWT
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{ //токен, который выдают пользователю
 		"name": name,
+		"id":   user_id,
 		"exp":  time.Now().Add(time.Minute * 30).Unix(), //время жизни токена
 	})
 
@@ -24,48 +32,58 @@ func GenerateJWT(name string) (string, error) { //функция, которая
 	return tokenString, nil
 }
 
-func homePage(w http.ResponseWriter, r *http.Request) { //фукция, которая срабатыват, когда пользователь подтверждает, что он тот, кем является
-	fmt.Fprintf(w, "Welcome to the Home Page!")
-}
+func IsAuthorized(rw http.ResponseWriter, tokenString string) (bool, int) { //функция, которая проверяет, корректный ли токен мы отправляем
+	// Парсинг и декодирование токена
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		// Проверяем алгоритм
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return mySigningKey, nil
+	})
 
-func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handler { //функция, которая проверяет, корректный ли токен мы отправляем
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header["Token"] != nil {
-			token, err := jwt.Parse(r.Header["Token"][0], func(token *jwt.Token) (interface{}, error) {
-				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, fmt.Errorf("There was an error")
-				}
-				return mySigningKey, nil
-			})
+	if err != nil {
+		log.Fatalf("Error parsing token: %v", err)
+	}
 
-			if err != nil {
-				fmt.Fprintf(w, err.Error())
-				return
-			}
-
-			if token.Valid {
-				endpoint(w, r)
+	if err != nil {
+		if ve, ok := err.(*jwt.ValidationError); ok {
+			if ve.Errors&jwt.ValidationErrorMalformed != 0 {
+				fmt.Println("Это не токен")
+			} else if ve.Errors&jwt.ValidationErrorExpired != 0 {
+				fmt.Println("Токен истек")
+			} else if ve.Errors&jwt.ValidationErrorNotValidYet != 0 {
+				fmt.Println("Токен еще не действителен")
 			} else {
-				fmt.Fprintf(w, "Invalid Authorization Token")
+				fmt.Println("Невалидный токен")
+			}
+			return false, 0
+		} else {
+			fmt.Println("Не удалось обработать токен")
+			return false, 0
+		}
+	} else if token.Valid {
+		fmt.Println("Токен валиден")
+		var user_id int
+		var flag bool
+		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+			// Здесь можно получить полезную нагрузку
+			fmt.Println("Claims:")
+			for key, us_id := range claims {
+				if key == "id" {
+					user_id = int(us_id.(float64))
+					flag = true
+				}
 			}
 		} else {
-			fmt.Fprintf(w, "No Authorization Token provided")
+			// user_id = 0
+			// flag = false
+			fmt.Println("Invalid token")
 		}
-	})
-}
-
-func Autcation_and_autzation() {
-	http.Handle("/autorization", IsAuthorized(homePage)) //вызываем, когда уже получили токен и хотим доказать свою личность
-
-	http.HandleFunc("/autentification", func(w http.ResponseWriter, r *http.Request) {
-		//запускаем в первый раз, когда хотим получить новый токен,
-		//получаем ошибку, в случае провала, либо JWT, в текстовом типе
-
-		validToken, err := GenerateJWT("имя") //получаем токен в строковом типе
-		if err != nil {
-			fmt.Fprintf(w, err.Error()) //выводим ошибку, при её наличии,
-		}
-
-		fmt.Fprintf(w, validToken) //либо, выводим токен
-	})
+		fmt.Println(flag, " ", user_id)
+		return flag, user_id
+	} else {
+		fmt.Println("Недействительный токен")
+		return false, 0
+	}
 }
