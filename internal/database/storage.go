@@ -10,8 +10,7 @@ import (
 )
 
 func InitDBConn(ctx context.Context) (dbpool *pgxpool.Pool, err error) {
-	// url := "postgres://postgres:23202004@localhost:5432/postgres?sslmode=disable"
-	url := "user=postgres dbname=postgre password=23202004 host=localhost sslmode=disable"
+	url := "host=176.124.192.39 port=5433 user=postgres password=1234 dbname=postgre sslmode=disable"
 
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {

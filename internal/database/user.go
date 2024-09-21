@@ -263,7 +263,9 @@ func (repo *MyRepository) AddNewNaturUserSQL(ctx context.Context, name, surname,
 }
 
 func (repo *MyRepository) LoginSQL(ctx context.Context, login, hashedPassword string, rep *pgxpool.Pool, rw http.ResponseWriter) (u models.User, err error, id int) {
-	row := rep.QueryRow(ctx, `SELECT id, email FROM Users.users WHERE (email = $1 AND password_hash = $2) OR (phone_number = $1 AND password_hash = $2);`, login, hashedPassword)
+	row := rep.QueryRow(ctx,
+		`SELECT id, email FROM Users.users WHERE (email = $1 AND password_hash = $2) OR (phone_number = $1 AND password_hash = $2);`,
+		login, hashedPassword)
 	err = row.Scan(&u.Id, &u.Email)
 
 	errorr(err)
