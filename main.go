@@ -22,32 +22,32 @@ type Account struct {
 }
 
 // func getAccount(accountID string, apiKey string) (*Account, error) {
-// 	client := &http.Client{}
-// 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/%s", apiUrl, accountID), nil)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+// client := &http.Client{}
+// req, err := http.NewRequest("GET", fmt.Sprintf("%s/%s", apiUrl, accountID), nil)
+// if err != nil {
+// return nil, err
+// }
 
-// 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+// req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 
-// 	resp, err := client.Do(req)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer resp.Body.Close()
+// resp, err := client.Do(req)
+// if err != nil {
+// return nil, err
+// }
+// defer resp.Body.Close()
 
-// 	var account Account
-// 	if err := json.NewDecoder(resp.Body).Decode(&account); err != nil {
-// 		return nil, err
-// 	}
+// var account Account
+// if err := json.NewDecoder(resp.Body).Decode(&account); err != nil {
+// return nil, err
+// }
 
-// 	return &account, nil
+// return &account, nil
 // }
 
 // Инициализация клиента Redis
 func NewRedisClient() *redis.Client {
 	return redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379", // Адрес Redis сервера
+		Addr:     "176.124.192.39:6379", // Адрес Redis сервера
 		Password: "",               // Пароль Redis, если не используется, оставляем пустым
 		DB:       0,                // Используем базу данных 0
 	})
@@ -70,8 +70,8 @@ func main() {
 	r := httprouter.New()
 	a.Routes(r, ctx, dbpool, rdb)
 
-	srv := &http.Server{Addr: "0.0.0.0:8080", Handler: r}
-	fmt.Println("It is alive! Try http://localhost:8080")
+	srv := &http.Server{Addr: "176.124.192.39:8080", Handler: r}
+	fmt.Println("It is alive! Try http://176.124.192.39:8080")
 	// fmt.Printf("Account ID: %s, Balance: %.2f\n", account.ID, account.Balance)
 	srv.ListenAndServe()
 }

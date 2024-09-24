@@ -150,6 +150,106 @@ func (repo *MyRepository) RegisterOrderSQL(ctx context.Context, rw http.Response
 	return err
 }
 
+func (repo *MyRepository) RegBookingSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool,
+	user_id,
+	order_id int,
+	starts_at,
+	ends_at time.Time,
+	amount int,
+) (err error) {
+	type Product struct {
+		Wallet_id      int
+		Transaction_id int
+		Booking_id     int
+	}
+	products := []Product{}
+
+	wallet, err := rep.Query(
+		ctx,
+		"SELECT id FROM Finance.wallets WHERE user_id = $1;",
+
+		user_id,
+	)
+	var wallet_id_int int
+	for wallet.Next() {
+		err := wallet.Scan(&wallet_id_int)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	errorr(err)
+
+	products[0].Wallet_id = wallet_id_int
+
+	request, err := rep.Query(
+		ctx,
+		`
+			WITH i AS (
+			INSERT INTO finance.transactions(wallet_id, amount, typee) 
+			VALUES ($1, $2, $3) 
+			RETURNING id
+		), 
+		j AS (
+			INSERT INTO orders.bookings(order_id, starts_at, ends_at, amount, transaction_id) 
+			SELECT $4, $5, %6, $7, i.id 
+			FROM i
+			RETURNING id
+		)
+		SELECT * FROM i, j;
+		`,
+
+		wallet_id_int,
+		amount,
+		3,
+
+		order_id,
+		starts_at,
+		ends_at,
+		amount,
+	)
+	errorr(err)
+
+	for request.Next() {
+		p := Product{}
+		err := request.Scan(
+			&p.Transaction_id,
+			&p.Booking_id,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		products = append(products, Product{Transaction_id: p.Transaction_id, Booking_id: p.Booking_id})
+	}
+
+	type Response struct {
+		Status  string    `json:"status"`
+		Data    []Product `json:"data,omitempty"`
+		Message string    `json:"message"`
+	}
+
+	if err != nil || len(products) == 0 {
+		response := Response{
+			Status:  "fatal",
+			Message: "Не прошла",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+	response := Response{
+		Status:  "success",
+		Data:    products,
+		Message: "Транзакция прошла успешно",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+	return
+}
+
 func (repo *MyRepository) RebookBookingSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool,
 	id_old_book,
 	id_users int,

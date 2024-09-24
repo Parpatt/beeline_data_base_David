@@ -134,14 +134,16 @@ type Kesh struct {
 }
 
 func (a *MyApp) SignupNaturPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
-	var natur NaturUser
+	type Kesh struct {
+		Email string
+		Code  int
+	}
+
+	var kesh Kesh
 
 	// Парсинг JSON-запроса
-	err := json.NewDecoder(r.Body).Decode(&natur)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
+	err := json.NewDecoder(r.Body).Decode(&kesh)
+	errorr(err)
 
 	// Настройки SMTP-сервера
 	smtpHost := "smtp.mail.ru"
@@ -152,7 +154,7 @@ func (a *MyApp) SignupNaturPOST(rw http.ResponseWriter, r *http.Request, redisCl
 	password := "X0h72ndPXchhjWZ4vbyT" // Пароль приложения
 
 	// Получатель
-	recipientEmail := natur.Email
+	recipientEmail := kesh.Email
 
 	// Сообщение
 	subject := "Subject: Тебя беспокоит служба безопасности сбербанка.\n"
@@ -214,7 +216,7 @@ func (a *MyApp) SignupNaturPOST(rw http.ResponseWriter, r *http.Request, redisCl
 	client.Quit()
 
 	// Преобразуем структуру kesh в JSON
-	keshData, err := json.Marshal(Kesh{Natur: natur, Code: codeNum})
+	keshData, err := json.Marshal(Kesh{Email: kesh.Email, Code: codeNum})
 	if err != nil {
 		log.Fatal("Ошибка при сериализации структуры kesh:", err)
 		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
@@ -1103,15 +1105,55 @@ func (a *MyApp) RegisterOrderPOST(rw http.ResponseWriter, r *http.Request) {
 	errorr(err)
 }
 
-type Booking struct {
-	Id_old_book int   `json:"Id_old_book"`
-	User_id     int   `json:"User_id"`
-	Starts_at   int64 `json:"Starts_at"`
-	Ends_at     int64 `json:"Ends_at"`
-	Amount      int   `json:"Amount"`
+func (a *MyApp) RegBookingPOST(rw http.ResponseWriter, r *http.Request) {
+	type Booking struct {
+		Order_id  int   `json:"Order_id"`
+		Starts_at int64 `json:"Starts_at"`
+		Ends_at   int64 `json:"Ends_at"`
+		Amount    int   `json:"Amount"`
+	}
+
+	var booking Booking
+
+	//запрос к счёту
+
+	//если всё ок, то продолжаем
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&booking)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Преобразуем UNIX-время в тип time.Time
+	Starts_at := time.Unix(booking.Starts_at, 0).UTC()
+	Ends_at := time.Unix(booking.Ends_at, 0).UTC()
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	// token, err := internal.ReadCookie("token", r)
+
+	// if err != nil {
+	// 	fmt.Errorf("Ошибка создания объявления: %v", err)
+	// 	return
+	// } else {
+	// 	flag , user_id := jwt.IsAuthorized(rw, token)
+
+	err = repo.RegBookingSQL(a.app.Ctx, rw, a.app.Repo.Pool, 27, booking.Order_id, Starts_at, Ends_at, booking.Amount)
+
+	errorr(err)
 }
 
 func (a *MyApp) RebookBookingPOST(rw http.ResponseWriter, r *http.Request) {
+	type Booking struct {
+		Id_old_book int   `json:"Id_old_book"`
+		User_id     int   `json:"User_id"`
+		Starts_at   int64 `json:"Starts_at"`
+		Ends_at     int64 `json:"Ends_at"`
+		Amount      int   `json:"Amount"`
+	}
+
 	var booking Booking
 
 	//запрос к счёту
@@ -1281,4 +1323,166 @@ func (a *MyApp) EnterCodeForRecoveryPassWithEmailPOST(rw http.ResponseWriter, r 
 		http.Error(rw, "Неверный код подтверждения", http.StatusUnauthorized)
 	}
 	errorr(err)
+}
+
+func (a *MyApp) EditingNaturUserDataPOST(rw http.ResponseWriter, r *http.Request) {
+	var naturUser NaturUser
+
+	//запрос к счёту
+
+	//если всё ок, то продолжаем
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&naturUser)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	// token, err := internal.ReadCookie("token", r)
+
+	// if err != nil {
+	// 	fmt.Errorf("Ошибка создания объявления: %v", err)
+	// 	return
+	// } else {
+	// 	flag , user_id := jwt.IsAuthorized(rw, token)
+
+	err = repo.EditingNaturUserDataSQL(a.app.Ctx, rw, a.app.Repo.Pool, 27, naturUser.Avatar_path, naturUser.Name, naturUser.Surname, naturUser.Patronymic)
+
+	errorr(err)
+}
+
+func (a *MyApp) EditingLegalUserDataPOST(rw http.ResponseWriter, r *http.Request) {
+	var legalUser LegalUser
+
+	//если всё ок, то продолжаем
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&legalUser)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	// token, err := internal.ReadCookie("token", r)
+
+	// if err != nil {
+	// 	fmt.Errorf("Ошибка создания объявления: %v", err)
+	// 	return
+	// } else {
+	// 	flag , user_id := jwt.IsAuthorized(rw, token)
+
+	err = repo.EditingLegalUserDataSQL(a.app.Ctx, rw, a.app.Repo.Pool, 28, legalUser.Avatar_path, legalUser.Ind_num_taxp, legalUser.Name_of_company, legalUser.Address_name)
+
+	errorr(err)
+}
+
+func (a *MyApp) AutorizLoginEmailSendPOST(rw http.ResponseWriter, r *http.Request) {
+	var login Login
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&login)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	user, err, user_id := repo.LoginSQL(a.app.Ctx, login.Login, login.Password, a.app.Repo.Pool, rw)
+
+	errorr(err)
+	if user_id == 0 {
+		fmt.Errorf("Incorrect login")
+		return
+	}
+
+	// логин и пароль совпадают, поэтому генерируем токен, пишем его в кеш и в куки
+	validToken, err := jwt.GenerateJWT("имя", user_id)     //получаем токен в строковом типе
+	fmt.Println("токен в строковом формате: ", validToken) // токен
+
+	errorr(err)
+
+	a.app.Cache[validToken] = user
+
+	livingTime := 60 * time.Minute
+	expiration := time.Now().Add(livingTime)
+
+	// кука будет жить 1 час
+	cookie := http.Cookie{
+		Name:    "token",
+		Value:   url.QueryEscape(validToken),
+		Expires: expiration,
+	}
+
+	http.SetCookie(rw, &cookie)
+
+	fmt.Println(internal.ReadCookie("token", r)) // токен
+}
+
+func (a *MyApp) AutorizLoginEmailEnterPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
+	var login Login
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&login)
+	errorr(err)
+
+	// Получаем данные из Redis
+	keshData, err := redisClient.Get(ctx, "jwt").Result()
+	if err == redis.Nil {
+		log.Println("Ключ не найден")
+		http.Error(rw, "Код не найден или истек", http.StatusUnauthorized)
+		return
+	} else if err != nil {
+		log.Fatal("Ошибка при получении данных из Redis:", err)
+		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+		return
+	}
+
+	// Десериализуем JSON обратно в структуру kesh
+	var storedKesh Login
+	err = json.Unmarshal([]byte(keshData), &storedKesh)
+	if err != nil {
+		log.Fatal("Ошибка при десериализации данных из Redis:", err)
+		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+		return
+	}
+
+	if storedKesh.Login == login.Login {
+		user, err, user_id := repo.LoginSQL(a.app.Ctx, login.Login, login.Password, a.app.Repo.Pool, rw)
+		errorr(err)
+
+		if user_id == 0 {
+			fmt.Errorf("Incorrect login")
+			return
+		}
+
+		// логин и пароль совпадают, поэтому генерируем токен, пишем его в кеш и в куки
+		validToken, err := jwt.GenerateJWT("имя", user_id)     //получаем токен в строковом типе
+		fmt.Println("токен в строковом формате: ", validToken) // токен
+
+		errorr(err)
+
+		a.app.Cache[validToken] = user
+
+		livingTime := 60 * time.Minute
+		expiration := time.Now().Add(livingTime)
+
+		// кука будет жить 1 час
+		cookie := http.Cookie{
+			Name:    "token",
+			Value:   url.QueryEscape(validToken),
+			Expires: expiration,
+		}
+
+		http.SetCookie(rw, &cookie)
+
+		fmt.Println(internal.ReadCookie("token", r)) // токен
+	}
 }

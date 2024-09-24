@@ -37,15 +37,15 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 
 	r.POST("/signupLegal", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SignupLegalPOST(rw, r)
-	}) //передача данных Юридического лица 		(регистрация)
+	}) //передача данных Юридического лица (регистрация)
 
 	r.POST("/signupNatur", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SignupNaturPOST(rw, r, rdb)
-	}) //передача данных Физического лица 		(регистрация)
+	}) //передача данных Физического лица (регистрация)
 
 	r.POST("/confEmailForReg", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.ConfEmailForRegPOST(rw, r, rdb)
-	}) //передача данных Физического лица 		(подтверждение)
+	}) //передача данных Физического лица (подтверждение)
 
 	r.POST("/sendCodForEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SendCodForEmail(rw, r, rdb)
@@ -191,9 +191,13 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 		a.RegisterOrderPOST(rw, r)
 	}) //регистрация заказа
 
+	r.POST("/regBooking", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.RegBookingPOST(rw, r)
+	}) //переброинрование
+
 	r.POST("/rebookBooking", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.RebookBookingPOST(rw, r)
-	}) //регистрация бронирования
+	}) //переброинрование
 
 	r.GET("/groupOrdersByRented", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.GroupOrdersByRentedGET(rw, r)
@@ -208,7 +212,7 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 	}) //регистрация репорта
 
 	// r.POST("/printReport", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	// 	a.PrintReportPOST(rw, r)
+	// a.PrintReportPOST(rw, r)
 	// }) //выво
 
 	r.POST("/sendCodeForRecoveryPassWithEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
@@ -218,6 +222,22 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 	r.POST("/enterCodeForRecoveryPassWithEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.EnterCodeForRecoveryPassWithEmailPOST(rw, r, rdb)
 	}) //восстановление пароля через почту(отправление на почту)
+
+	r.POST("/editingNaturUserData", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.EditingNaturUserDataPOST(rw, r)
+	}) //изменение данных для физика
+
+	r.POST("/editingLegalUserData", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.EditingLegalUserDataPOST(rw, r)
+	}) //изменение данных для юрика
+
+	r.POST("/autorizLoginEmailSend", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.AutorizLoginEmailSendPOST(rw, r)
+	}) //логин отправка
+
+	r.POST("/autorizLoginEmailEnter", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.AutorizLoginEmailEnterPOST(rw, r, rdb)
+	}) //логин ввод
 }
 
 func PageMenuNavigation(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {

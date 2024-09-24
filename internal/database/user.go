@@ -586,3 +586,249 @@ func (repo *MyRepository) EnterCodeForRecoveryPassWithEmailSQL(ctx context.Conte
 
 	return err
 }
+
+func (repo *MyRepository) EditingNaturUserDataSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id int, avatar_path string, name string, surname string, patronymic string) (err error) {
+	type NaturUser struct {
+		Id_1 int `json:"id_1" db:"id_1"`
+		Id_2 int `json:"id_2" db:"id_2"`
+
+		Avatar_path string `json:"avatar_path" db:"avatar_path"`
+		Name        string `json:"name" db:"name"`
+		Surname     string `json:"surname" db:"surname"`
+		Patronymic  string `json:"patronymic" db:"patronymic"`
+	}
+	products := []NaturUser{}
+
+	request, err := rep.Query(
+		ctx,
+		`WITH i AS (
+    		SELECT id, avatar_path FROM users.users WHERE id = $1
+		),
+		j AS (
+			SELECT name, surname, patronymic FROM users.individual_user WHERE user_id = $1
+		)
+		SELECT i.id, i.avatar_path, j.name, j.surname, j.patronymic
+		FROM i, j;`, user_id)
+
+	errorr(err)
+
+	var id int
+
+	for request.Next() {
+		p := NaturUser{}
+		err := request.Scan(
+			&id,
+			&p.Avatar_path,
+			&p.Name,
+			&p.Surname,
+			&p.Patronymic,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		products = append(products, p)
+	}
+
+	if avatar_path == "" {
+		avatar_path = products[0].Avatar_path
+	}
+	if name == "" {
+		name = products[0].Name
+	}
+	if surname == "" {
+		surname = products[0].Surname
+	}
+	if patronymic == "" {
+		patronymic = products[0].Patronymic
+	}
+
+	request, err = rep.Query(
+		ctx,
+		`
+			WITH i AS (
+				UPDATE users.users SET avatar_path = $1 WHERE id = $2 RETURNING id
+			),
+			j AS (
+				UPDATE users.individual_user SET name = $3, surname = $4, patronymic = $5 WHERE user_id = $6 RETURNING user_id
+			)
+			SELECT i.id AS user_id, j.user_id AS individual_user_id
+			FROM i, j;
+		`,
+		avatar_path,
+		user_id,
+		name,
+		surname,
+		patronymic,
+		user_id)
+
+	var user_idd int
+	var individual_user_id int
+
+	for request.Next() {
+		err := request.Scan(
+			&user_idd,
+			&individual_user_id,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+	}
+
+	products[0].Id_1 = user_idd
+	products[0].Id_2 = individual_user_id
+
+	type Response struct {
+		Status  string      `json:"status"`
+		Data    []NaturUser `json:"data,omitempty"`
+		Message string      `json:"message"`
+	}
+
+	if err == nil || id != 0 || user_idd != 0 || individual_user_id != 0 {
+		response := Response{
+			Status:  "success",
+			Data:    products,
+			Message: "Показано",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+
+		return err
+	}
+
+	response := Response{
+		Status:  "fatal",
+		Message: "Не показано",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+
+	return err
+}
+
+func (repo *MyRepository) EditingLegalUserDataSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id int, avatar_path string, ind_num_taxp int, name_of_company string, address_name string) (err error) {
+	type LegalUser struct {
+		Id_1 int `json:"id_1" db:"id_1"`
+		Id_2 int `json:"id_2" db:"id_2"`
+
+		Avatar_path     string `json:"avatar_path" db:"avatar_path"`
+		Ind_num_taxp    int    `json:"ind_num_taxp" db:"ind_num_taxp"`
+		Name_of_company string `json:"name_of_company" db:"name_of_company"`
+		Address_name    string `json:"address_name" db:"address_name"`
+	}
+	products := []LegalUser{}
+
+	request, err := rep.Query(
+		ctx,
+		`WITH i AS (
+    		SELECT id, avatar_path FROM users.users WHERE id = $1
+		),
+		j AS (
+			SELECT ind_num_taxp, name_of_company, address_name FROM users.company_user WHERE user_id = $1
+		)
+		SELECT i.id, i.avatar_path, j.ind_num_taxp, j.name_of_company, j.address_name
+		FROM i, j;`, user_id)
+
+	errorr(err)
+
+	var id int
+
+	for request.Next() {
+		p := LegalUser{}
+		err := request.Scan(
+			&id,
+			&p.Avatar_path,
+			&p.Ind_num_taxp,
+			&p.Name_of_company,
+			&p.Address_name,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		products = append(products, p)
+	}
+
+	if avatar_path == "" {
+		avatar_path = products[0].Avatar_path
+	}
+	if ind_num_taxp == 0 {
+		ind_num_taxp = products[0].Ind_num_taxp
+	}
+	if name_of_company == "" {
+		name_of_company = products[0].Name_of_company
+	}
+	if address_name == "" {
+		address_name = products[0].Address_name
+	}
+
+	request, err = rep.Query(
+		ctx,
+		`
+			WITH i AS (
+				UPDATE users.users SET avatar_path = $1 WHERE id = $2 RETURNING id
+			),
+			j AS (
+				UPDATE users.company_user SET ind_num_taxp = $3, name_of_company = $4, address_name = $5 WHERE user_id = $6 RETURNING user_id
+			)
+			SELECT i.id AS user_id, j.user_id AS individual_user_id
+			FROM i, j;
+		`,
+		avatar_path,
+		user_id,
+		ind_num_taxp,
+		name_of_company,
+		address_name,
+		user_id)
+
+	var user_idd int
+	var individual_user_id int
+
+	for request.Next() {
+		err := request.Scan(
+			&user_idd,
+			&individual_user_id,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+	}
+
+	products[0].Id_1 = user_idd
+	products[0].Id_2 = individual_user_id
+
+	type Response struct {
+		Status  string      `json:"status"`
+		Data    []LegalUser `json:"data,omitempty"`
+		Message string      `json:"message"`
+	}
+
+	if err == nil || id != 0 || user_idd != 0 || individual_user_id != 0 {
+		response := Response{
+			Status:  "success",
+			Data:    products,
+			Message: "Показано",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+
+		return err
+	}
+
+	response := Response{
+		Status:  "fatal",
+		Message: "Не показано",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+
+	return err
+}
