@@ -349,13 +349,19 @@ func (repo *MyRepository) SortProductListAllSQL(ctx context.Context, rw http.Res
 	}
 	products := []Product{}
 
-	if err != nil {
-		err = fmt.Errorf("failed to exec data: %w", err)
-
-		return
-	}
+	errorr(err)
 
 	request, err := rep.Query(ctx, ``)
+
+	fmt.Println(
+		category,
+		lowNum,
+		higNum,
+		lowDate,
+		higDate,
+		nil,
+		rating,
+	)
 
 	if location == "" {
 		request, err = rep.Query(
@@ -738,7 +744,6 @@ func (repo *MyRepository) DelAdsSQL(ctx context.Context, ads_id int, owner_id in
 		err = fmt.Errorf("failed to exec data: %w", err)
 		response := Response{
 			Status:  "fatal",
-			Data:    0,
 			Message: "Объявление не удалено",
 		}
 

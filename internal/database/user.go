@@ -1,12 +1,16 @@
 package database
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"mime/multipart"
 	"myproject/internal/models"
 	"net/http"
 	"net/smtp"
@@ -39,6 +43,28 @@ type LegalUser struct {
 	Address_name    string `json:"address_name" db:"address_name"`
 }
 
+type NaturUser struct {
+	Id            int       `json:"id" db:"id"`
+	Password_hash string    `json:"password_hash" db:"password_hash"`
+	Email         string    `json:"email" db:"email"`
+	Phone_number  string    `json:"phone_number" db:"phone_number"`
+	Created_at    time.Time `json:"created_at" db:"created_at"`
+	Updated_at    time.Time `json:"updated_at" db:"updated_at"`
+	Avatar_path   string    `json:"avatar_path" db:"avatar_path"`
+	User_type     int       `json:"user_type" db:"user_type"`
+	User_role     int       `json:"user_role" db:"user_role"`
+
+	Name       string `json:"name" db:"name"`
+	Surname    string `json:"surname" db:"surname"`
+	Patronymic string `json:"patronymic" db:"patronymic"`
+}
+
+type FileUploadRequest struct {
+	Filename string `json:"filename"`
+	Filetype string `json:"filetype"`
+	Data     []byte `json:"data"`
+}
+
 func errorr(err error) {
 	if err != nil {
 		err = fmt.Errorf("failed to exec data: %w", err)
@@ -46,7 +72,69 @@ func errorr(err error) {
 	}
 }
 
-func (repo *MyRepository) AddNewLegalUserSQL(ctx context.Context, rep *pgxpool.Pool, ind_num_taxp int, name_of_company, address_name, email, phoneNum, hashedPassword string, rw http.ResponseWriter) (err error) {
+func addImage(r *http.Request, rw http.ResponseWriter, Filename, Filetype, Data string) {
+	// Декодируем Base64-строку в байты
+	imgData, err := base64.StdEncoding.DecodeString(Data)
+	errorr(err)
+
+	// Создаём multipart/form-data запрос
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	// Создаем часть для передачи файла
+	part, err := writer.CreateFormFile("file", "image.png")
+	if err != nil {
+		panic("Не удалось создать часть для файла: " + err.Error())
+	}
+
+	// Записываем байты файла в запрос
+	_, err = part.Write(imgData)
+	if err != nil {
+		panic("Не удалось записать файл: " + err.Error())
+	}
+
+	// Закрываем writer для завершения формирования запроса
+	writer.Close()
+
+	// Создаем HTTP POST запрос
+	req, err := http.NewRequest("POST", "http://176.124.192.39:8080/upload", &body)
+	errorr(err)
+
+	// Устанавливаем заголовок Content-Type для multipart/form-data
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	// Отправляем запрос на сервер с использованием HTTP клиента
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		panic("Ошибка при отправке запроса: " + err.Error())
+	}
+	defer resp.Body.Close()
+
+	// Читаем ответ от сервера
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		panic("Не удалось прочитать ответ от сервера: " + err.Error())
+	}
+
+	// Выводим ответ от сервера
+	fmt.Println("Ответ от сервера:", string(respBody))
+}
+
+func (repo *MyRepository) AddNewLegalUserSQL(
+	ctx context.Context,
+	rep *pgxpool.Pool,
+	rw http.ResponseWriter,
+	r *http.Request,
+	ind_num_taxp int,
+	name_of_company,
+	address_name,
+	email,
+	phoneNum,
+	hashedPassword,
+	Filename,
+	Filetype,
+	Data string) (err error) {
 	result, errors := rep.Query(ctx, `
 			WITH i AS (
 				INSERT INTO Users.users (
@@ -102,21 +190,7 @@ func (repo *MyRepository) AddNewLegalUserSQL(ctx context.Context, rep *pgxpool.P
 	if user_id == 0 {
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(Response{
-			Status: "fatal",
-			Data: LegalUser{
-				Id:            0,
-				Password_hash: "",
-				Email:         "",
-				Phone_number:  "",
-				Updated_at:    time.Date(0001, 01, 01, 00, 00, 00, 00, time.UTC),
-				Avatar_path:   "",
-				User_type:     0,
-				User_role:     0,
-
-				Ind_num_taxp:    0,
-				Name_of_company: "",
-				Address_name:    "",
-			},
+			Status:  "fatal",
 			Message: "Введите корректный & уникальный логин и пароль ",
 		})
 
@@ -124,26 +198,14 @@ func (repo *MyRepository) AddNewLegalUserSQL(ctx context.Context, rep *pgxpool.P
 	} else if errors != nil {
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(Response{
-			Status: "fatal",
-			Data: LegalUser{
-				Id:            0,
-				Password_hash: "",
-				Email:         "",
-				Phone_number:  "",
-				Updated_at:    time.Date(0001, 01, 01, 00, 00, 00, 00, time.UTC),
-				Avatar_path:   "",
-				User_type:     0,
-				User_role:     0,
-
-				Ind_num_taxp:    0,
-				Name_of_company: "",
-				Address_name:    "",
-			},
+			Status:  "fatal",
 			Message: errors.Error(),
 		})
 
 		return
 	} else {
+		addImage(r, rw, Filename, Filetype, Data)
+
 		response := Response{
 			Status:  "success",
 			Data:    user,
@@ -157,31 +219,20 @@ func (repo *MyRepository) AddNewLegalUserSQL(ctx context.Context, rep *pgxpool.P
 	}
 }
 
-type NaturUser struct {
-	Id            int       `json:"id" db:"id"`
-	Password_hash string    `json:"password_hash" db:"password_hash"`
-	Email         string    `json:"email" db:"email"`
-	Phone_number  string    `json:"phone_number" db:"phone_number"`
-	Created_at    time.Time `json:"created_at" db:"created_at"`
-	Updated_at    time.Time `json:"updated_at" db:"updated_at"`
-	Avatar_path   string    `json:"avatar_path" db:"avatar_path"`
-	User_type     int       `json:"user_type" db:"user_type"`
-	User_role     int       `json:"user_role" db:"user_role"`
-
-	Name       string `json:"name" db:"name"`
-	Surname    string `json:"surname" db:"surname"`
-	Patronymic string `json:"patronymic" db:"patronymic"`
-}
-
-func (repo *MyRepository) AddNewNaturUserSQL(ctx context.Context, name, surname, patronymic, email, phoneNum, hashedPassword string, rep *pgxpool.Pool, rw http.ResponseWriter) (err error) {
-	type Response struct {
-		Status  string    `json:"status"`
-		Data    NaturUser `json:"data,omitempty"`
-		Message string    `json:"message"`
-	}
-
-	rw.Header().Set("Content-Type", "application/json")
-	rw.Header().Set("Access-Control-Allow-Origin", "http://localhost:8080")
+func (repo *MyRepository) AddNewNaturUserSQL(
+	ctx context.Context,
+	rep *pgxpool.Pool,
+	rw http.ResponseWriter,
+	r *http.Request,
+	name,
+	surname,
+	patronymic,
+	email,
+	phoneNum,
+	hashedPassword,
+	Filename,
+	Filetype,
+	Data string) (err error) {
 	result, errors := rep.Query(ctx, `
 			WITH i AS (
 			INSERT INTO Users.users (
@@ -232,6 +283,12 @@ func (repo *MyRepository) AddNewNaturUserSQL(ctx context.Context, name, surname,
 		Patronymic: patronymic,
 	}
 
+	type Response struct {
+		Status  string    `json:"status"`
+		Data    NaturUser `json:"data,omitempty"`
+		Message string    `json:"message"`
+	}
+
 	if user_id == 0 {
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(Response{
@@ -249,6 +306,8 @@ func (repo *MyRepository) AddNewNaturUserSQL(ctx context.Context, name, surname,
 
 		return
 	} else {
+		addImage(r, rw, Filename, Filetype, Data)
+
 		response := Response{
 			Status:  "success",
 			Data:    user,
@@ -288,11 +347,7 @@ func (repo *MyRepository) LoginSQL(ctx context.Context, login, hashedPassword st
 
 	if err != nil {
 		response := Response{
-			Status: "fatal",
-			Data: User{
-				Id:    0,
-				Login: "",
-			},
+			Status:  "fatal",
 			Message: err.Error(),
 		}
 

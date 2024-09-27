@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"myproject/internal"
 	"myproject/internal/database"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"net/smtp"
 	"net/url"
+	"os"
 	"strconv"
 	"time"
 
@@ -31,21 +33,35 @@ type MyApp struct {
 }
 
 type LegalUser struct {
-	Id            int       `json:"id"`
-	Password_hash string    `json:"password_hash"`
-	Email         string    `json:"email" db:"email"`
-	Phone_number  string    `json:"phone_number"`
-	Created_at    time.Time `json:"created_at"`
-	Updated_at    time.Time `json:"updated_at"`
-	Avatar_path   string    `json:"avatar_path"`
-	User_type     int       `json:"user_type"`
-	User_role     int       `json:"user_role"`
+	Password_hash string `json:"password_hash"`
+	Email         string `json:"email" db:"email"`
+	Phone_number  string `json:"phone_number"`
 
 	Ind_num_taxp    int    `json:"ind_num_taxp"`
 	Name_of_company string `json:"name_of_company"`
 	Address_name    string `json:"address_name"`
 
-	Email_code int `json:"Email_code"`
+	Filename string `json:"filename"`
+	Filetype string `json:"filetype"`
+	Data     string `json:"data"`
+}
+
+type NaturUser struct {
+	Password_hash string `json:"password_hash"`
+	Email         string `json:"email" db:"email"`
+	Phone_number  string `json:"phone_number"`
+
+	Surname    string `json:"surname"`
+	Name       string `json:"name"`
+	Patronymic string `json:"patronymic"`
+
+	Filename string `json:"filename"`
+	Filetype string `json:"filetype"`
+	Data     string `json:"data"`
+}
+
+type Email_code struct {
+	Email_code int `json:"email_code"`
 }
 
 func errorr(err error) {
@@ -63,80 +79,35 @@ func NewApp(Ctx context.Context, dbpool *pgxpool.Pool) *MyApp {
 	return &MyApp{internal.App{Ctx: Ctx, Repo: NewRepository(dbpool), Cache: make(map[string]models.User)}}
 }
 
-func (a *MyApp) SignupLegalPOST(rw http.ResponseWriter, r *http.Request) {
-	var legal LegalUser
+func (a *MyApp) UploadPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) (error, bool) {
+	// Ограничиваем максимальный размер файла (например, 10 MB)
+	r.ParseMultipartForm(10 << 20)
 
-	// Парсинг JSON-запроса
-	err := json.NewDecoder(r.Body).Decode(&legal)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
-
-	// Настройки SMTP-сервера
-	smtpHost := "smtp.mail.ru"
-	smtpPort := "587"
-
-	// Данные отправителя (ваша почта и пароль приложения)
-	senderEmail := "parpatt_test@mail.ru"
-	password := "23202004aA" // Используйте пароль приложения mail.ru
-
-	// Получатель
-	recipientEmail := "dzigojty@gmail.com"
-
-	// Сообщение
-	subject := "Тебя биспокоит слубжа безопасности сбербанка."
-	body := "Введи этот код."
-	codeNum := 777
-	message := []byte(subject + "\n" + body + "\n" + strconv.Itoa(codeNum))
-
-	// Авторизация
-	auth := smtp.PlainAuth("", senderEmail, password, smtpHost)
-
-	// Отправка сообщения
-	err = smtp.SendMail(smtpHost+":"+smtpPort, auth, senderEmail, []string{recipientEmail}, message)
+	// Извлекаем файл из формы
+	file, handler, err := r.FormFile("file")
 	errorr(err)
 
-	fmt.Println("Да")
+	defer file.Close()
 
-	if legal.Email_code == codeNum {
-		err = repo.AddNewLegalUserSQL(a.app.Ctx, a.app.Repo.Pool, legal.Ind_num_taxp, legal.Name_of_company, legal.Address_name, legal.Email, legal.Phone_number, legal.Password_hash, rw)
-		fmt.Println("код совпал")
-		errorr(err)
+	// Создаем файл на сервере для сохранения загруженного файла
+	dst, err := os.Create("/home/user/beeline_project/media/user_avatar/" + handler.Filename)
+	errorr(err)
+
+	defer dst.Close()
+
+	// Копируем содержимое загруженного файла в созданный файл на сервере
+	if _, err := io.Copy(dst, file); err != nil {
+		http.Error(rw, "Unable to save file", http.StatusInternalServerError)
+		return err, false
 	}
+
+	return err, true
 }
 
-type NaturUser struct {
-	Id            int       `json:"id"`
-	Password_hash string    `json:"password_hash"`
-	Email         string    `json:"email" db:"email"`
-	Phone_number  string    `json:"phone_number"`
-	Created_at    time.Time `json:"created_at"`
-	Updated_at    time.Time `json:"updated_at"`
-	Avatar_path   string    `json:"avatar_path"`
-	User_type     int       `json:"user_type"`
-	User_role     int       `json:"user_role"`
-
-	Surname    string `json:"surname"`
-	Name       string `json:"name"`
-	Patronymic string `json:"patronymic"`
-}
-
-type Email_code struct {
-	Email_code int `json:"email_code"`
-}
-
-type Kesh struct {
-	Natur NaturUser
-	Code  int
-}
-
-func (a *MyApp) SignupNaturPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
+func (a *MyApp) SignupUserByEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) error {
 	type Kesh struct {
-		Email string
-		Code  int
+		Email string `json:"Email"`
+		Code  int    `json:"Code"`
 	}
 
 	var kesh Kesh
@@ -220,32 +191,60 @@ func (a *MyApp) SignupNaturPOST(rw http.ResponseWriter, r *http.Request, redisCl
 	if err != nil {
 		log.Fatal("Ошибка при сериализации структуры kesh:", err)
 		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	// Сохраняем код подтверждения в Redis с TTL 10 минут
 	err = redisClient.Set(ctx, "jwt", keshData, 10*time.Minute).Err()
-	// if err != nil {
-	// 	log.Fatal("Ошибка при сохранении кода в Redis:", err)
-	// 	http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
-	// 	return
-	// }
+	if err != nil {
+		log.Fatal("Ошибка при сохранении кода в Redis:", err)
+		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+		return err
+	}
 
 	rw.WriteHeader(http.StatusOK)
-	rw.Write([]byte("Код отправлен на вашу почту."))
+	type Response struct {
+		Status  string `json:"status"`
+		Data    int    `json:"data,omitempty"`
+		Message string `json:"message"`
+	}
+
+	if err != nil {
+		response := Response{
+			Status:  "fatal",
+			Message: "Объявление не найдено",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+
+		return err
+	}
+	response := Response{
+		Status:  "success",
+		Data:    codeNum,
+		Message: "Объявление показано",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+
+	return err
 }
 
-// ConfEmail обработчик: проверка кода
-func (a *MyApp) ConfEmailForRegPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
-	var email Email_code
+func (a *MyApp) EnterCodeFromEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) error {
+	type Kesh struct {
+		Email string `json:"Email"`
+		Code  int    `json:"Code"`
+	}
 
-	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+	var email Email_code
 
 	// Парсинг JSON-запроса
 	err := json.NewDecoder(r.Body).Decode(&email)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
+		return err
 	}
 
 	// Получаем данные из Redis
@@ -253,11 +252,11 @@ func (a *MyApp) ConfEmailForRegPOST(rw http.ResponseWriter, r *http.Request, red
 	if err == redis.Nil {
 		log.Println("Ключ не найден")
 		http.Error(rw, "Код не найден или истек", http.StatusUnauthorized)
-		return
+		return err
 	} else if err != nil {
 		log.Fatal("Ошибка при получении данных из Redis:", err)
 		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	// Десериализуем JSON обратно в структуру kesh
@@ -266,28 +265,148 @@ func (a *MyApp) ConfEmailForRegPOST(rw http.ResponseWriter, r *http.Request, red
 	if err != nil {
 		log.Fatal("Ошибка при десериализации данных из Redis:", err)
 		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
-		return
+		return err
+	}
+
+	type Response struct {
+		Status  string `json:"status"`
+		Data    string `json:"data,omitempty"`
+		Message string `json:"message"`
 	}
 
 	// Проверяем код
 	if email.Email_code == storedKesh.Code {
-		err = repo.AddNewNaturUserSQL(
-			a.app.Ctx,
-			storedKesh.Natur.Surname,
-			storedKesh.Natur.Name,
-			storedKesh.Natur.Patronymic,
-			storedKesh.Natur.Email,
-			storedKesh.Natur.Phone_number,
-			storedKesh.Natur.Password_hash,
-			a.app.Repo.Pool,
-			rw)
-		if err != nil {
-			log.Fatal(err)
+		response := Response{
+			Status:  "success",
+			Data:    storedKesh.Email,
+			Message: "Объявление показано",
 		}
-		rw.Write([]byte("Регистрация завершена успешно"))
-	} else {
-		http.Error(rw, "Неверный код подтверждения", http.StatusUnauthorized)
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+
+		return err
 	}
+
+	fmt.Println(email.Email_code == storedKesh.Code, email.Email_code, storedKesh.Code)
+
+	response := Response{
+		Status:  "fatal",
+		Message: "Объявление не найдено",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+
+	return err
+}
+
+func (a *MyApp) SignupLegalPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) error {
+	type Kesh struct {
+		Email string
+		Code  int
+	}
+
+	var user LegalUser
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&user)
+	errorr(err)
+
+	// Получаем данные из Redis
+	keshData, err := redisClient.Get(ctx, "jwt").Result()
+	if err == redis.Nil {
+		log.Println("Ключ не найден")
+		http.Error(rw, "Код не найден или истек", http.StatusUnauthorized)
+		return err
+	} else if err != nil {
+		log.Fatal("Ошибка при получении данных из Redis:", err)
+		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+		return err
+	}
+
+	// Десериализуем JSON обратно в структуру kesh
+	var storedKesh Kesh
+	err = json.Unmarshal([]byte(keshData), &storedKesh)
+	if err != nil {
+		log.Fatal("Ошибка при десериализации данных из Redis:", err)
+		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+		return err
+	}
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	err = repo.AddNewLegalUserSQL(
+		ctx,
+		a.app.Repo.Pool,
+		rw,
+		r,
+		user.Ind_num_taxp,
+		user.Name_of_company,
+		user.Address_name,
+		storedKesh.Email,
+		user.Phone_number,
+		user.Password_hash,
+
+		user.Filename,
+		user.Filetype,
+		user.Data,
+	)
+	return err
+}
+
+func (a *MyApp) SignupNaturPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) error {
+	type Kesh struct {
+		Email string
+		Code  int
+	}
+
+	var user NaturUser
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&user)
+	errorr(err)
+
+	// Получаем данные из Redis
+	keshData, err := redisClient.Get(ctx, "jwt").Result()
+	if err == redis.Nil {
+		log.Println("Ключ не найден")
+		http.Error(rw, "Код не найден или истек", http.StatusUnauthorized)
+		return err
+	} else if err != nil {
+		log.Fatal("Ошибка при получении данных из Redis:", err)
+		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+		return err
+	}
+
+	// Десериализуем JSON обратно в структуру kesh
+	var storedKesh Kesh
+	err = json.Unmarshal([]byte(keshData), &storedKesh)
+	if err != nil {
+		log.Fatal("Ошибка при десериализации данных из Redis:", err)
+		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+		return err
+	}
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	err = repo.AddNewNaturUserSQL(
+		ctx,
+		a.app.Repo.Pool,
+		rw,
+		r,
+		user.Name,
+		user.Surname,
+		user.Patronymic,
+		storedKesh.Email,
+		user.Phone_number,
+		user.Password_hash,
+
+		user.Filename,
+		user.Filetype,
+		user.Data,
+	)
+	return err
 }
 
 type Email_name struct {
@@ -524,6 +643,9 @@ func (a *MyApp) SortProductListAllPOST(rw http.ResponseWriter, r *http.Request) 
 	// Преобразуем UNIX-время в тип time.Time
 	lowDate := time.Unix(sortProductList.LowDate, 0).UTC()
 	higDate := time.Unix(sortProductList.HigDate, 0).UTC()
+
+	fmt.Println(lowDate)
+	fmt.Println(higDate)
 
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
@@ -1339,7 +1461,7 @@ func (a *MyApp) EditingNaturUserDataPOST(rw http.ResponseWriter, r *http.Request
 		return
 	}
 
-	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+	// repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
 	// token, err := internal.ReadCookie("token", r)
 
@@ -1349,9 +1471,9 @@ func (a *MyApp) EditingNaturUserDataPOST(rw http.ResponseWriter, r *http.Request
 	// } else {
 	// 	flag , user_id := jwt.IsAuthorized(rw, token)
 
-	err = repo.EditingNaturUserDataSQL(a.app.Ctx, rw, a.app.Repo.Pool, 27, naturUser.Avatar_path, naturUser.Name, naturUser.Surname, naturUser.Patronymic)
+	// err = repo.EditingNaturUserDataSQL(a.app.Ctx, rw, a.app.Repo.Pool, 27, naturUser.Avatar_path, naturUser.Name, naturUser.Surname, naturUser.Patronymic)
 
-	errorr(err)
+	// errorr(err)
 }
 
 func (a *MyApp) EditingLegalUserDataPOST(rw http.ResponseWriter, r *http.Request) {
@@ -1366,7 +1488,7 @@ func (a *MyApp) EditingLegalUserDataPOST(rw http.ResponseWriter, r *http.Request
 		return
 	}
 
-	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+	// repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
 	// token, err := internal.ReadCookie("token", r)
 
@@ -1376,61 +1498,120 @@ func (a *MyApp) EditingLegalUserDataPOST(rw http.ResponseWriter, r *http.Request
 	// } else {
 	// 	flag , user_id := jwt.IsAuthorized(rw, token)
 
-	err = repo.EditingLegalUserDataSQL(a.app.Ctx, rw, a.app.Repo.Pool, 28, legalUser.Avatar_path, legalUser.Ind_num_taxp, legalUser.Name_of_company, legalUser.Address_name)
+	// err = repo.EditingLegalUserDataSQL(a.app.Ctx, rw, a.app.Repo.Pool, 28, legalUser.Avatar_path, legalUser.Ind_num_taxp, legalUser.Name_of_company, legalUser.Address_name)
 
-	errorr(err)
+	// errorr(err)
 }
 
-func (a *MyApp) AutorizLoginEmailSendPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) AutorizLoginEmailSendPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
 	var login Login
-
-	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
 	// Парсинг JSON-запроса
 	err := json.NewDecoder(r.Body).Decode(&login)
+	errorr(err)
+
+	// Настройки SMTP-сервера
+	smtpHost := "smtp.mail.ru"
+	smtpPort := "587"
+
+	// Данные отправителя (ваша почта и пароль приложения)
+	senderEmail := "parpatt_test@mail.ru"
+	password := "X0h72ndPXchhjWZ4vbyT" // Пароль приложения
+
+	// Получатель
+	recipientEmail := login.Login
+
+	// Сообщение
+	subject := "Subject: Тебя беспокоит служба безопасности сбербанка.\n"
+	body := "Введи этот код.\n"
+	codeNum := 777 // Здесь лучше использовать случайный код
+	message := []byte(subject + "\n" + body + strconv.Itoa(codeNum))
+
+	// Авторизация для отправки email
+	auth := smtp.PlainAuth("", senderEmail, password, smtpHost)
+
+	// Устанавливаем обычное нешифрованное соединение
+	client, err := smtp.Dial(smtpHost + ":" + smtpPort)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
+		log.Fatal(err)
+	}
+
+	// Используем команду STARTTLS для начала TLS-сессии
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true, // Это нужно убрать в продакшене
+		ServerName:         smtpHost,
+	}
+
+	if err = client.StartTLS(tlsConfig); err != nil {
+		log.Fatal(err)
+	}
+
+	// Старт авторизации
+	if err = client.Auth(auth); err != nil {
+		log.Fatal(err)
+	}
+
+	// Установка адреса отправителя
+	if err = client.Mail(senderEmail); err != nil {
+		log.Fatal(err)
+	}
+
+	// Установка адреса получателя
+	if err = client.Rcpt(recipientEmail); err != nil {
+		log.Fatal(err)
+	}
+
+	// Отправка сообщения
+	w, err := client.Data()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	_, err = w.Write(message)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = w.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Завершение сеанса
+	client.Quit()
+
+	type Kesh struct {
+		Login Login
+		Code  int
+	}
+
+	// Преобразуем структуру kesh в JSON
+	keshData, err := json.Marshal(Kesh{Login: login, Code: codeNum})
+	if err != nil {
+		log.Fatal("Ошибка при сериализации структуры kesh:", err)
+		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
 		return
 	}
 
-	user, err, user_id := repo.LoginSQL(a.app.Ctx, login.Login, login.Password, a.app.Repo.Pool, rw)
-
-	errorr(err)
-	if user_id == 0 {
-		fmt.Errorf("Incorrect login")
+	// Сохраняем код подтверждения в Redis с TTL 10 минут
+	err = redisClient.Set(ctx, "jwt", keshData, 10*time.Minute).Err()
+	if err != nil {
+		log.Fatal("Ошибка при сохранении кода в Redis:", err)
+		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
 		return
 	}
 
-	// логин и пароль совпадают, поэтому генерируем токен, пишем его в кеш и в куки
-	validToken, err := jwt.GenerateJWT("имя", user_id)     //получаем токен в строковом типе
-	fmt.Println("токен в строковом формате: ", validToken) // токен
-
-	errorr(err)
-
-	a.app.Cache[validToken] = user
-
-	livingTime := 60 * time.Minute
-	expiration := time.Now().Add(livingTime)
-
-	// кука будет жить 1 час
-	cookie := http.Cookie{
-		Name:    "token",
-		Value:   url.QueryEscape(validToken),
-		Expires: expiration,
-	}
-
-	http.SetCookie(rw, &cookie)
-
-	fmt.Println(internal.ReadCookie("token", r)) // токен
+	rw.WriteHeader(http.StatusOK)
+	rw.Write([]byte("Код отправлен на вашу почту."))
 }
 
 func (a *MyApp) AutorizLoginEmailEnterPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
-	var login Login
+	var code Email_code
 
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
 	// Парсинг JSON-запроса
-	err := json.NewDecoder(r.Body).Decode(&login)
+	err := json.NewDecoder(r.Body).Decode(&code)
 	errorr(err)
 
 	// Получаем данные из Redis
@@ -1445,8 +1626,13 @@ func (a *MyApp) AutorizLoginEmailEnterPOST(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	type Kesh struct {
+		Login Login
+		Code  int
+	}
+
 	// Десериализуем JSON обратно в структуру kesh
-	var storedKesh Login
+	var storedKesh Kesh
 	err = json.Unmarshal([]byte(keshData), &storedKesh)
 	if err != nil {
 		log.Fatal("Ошибка при десериализации данных из Redis:", err)
@@ -1454,8 +1640,8 @@ func (a *MyApp) AutorizLoginEmailEnterPOST(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if storedKesh.Login == login.Login {
-		user, err, user_id := repo.LoginSQL(a.app.Ctx, login.Login, login.Password, a.app.Repo.Pool, rw)
+	if storedKesh.Code == code.Email_code {
+		user, err, user_id := repo.LoginSQL(a.app.Ctx, storedKesh.Login.Login, storedKesh.Login.Password, a.app.Repo.Pool, rw)
 		errorr(err)
 
 		if user_id == 0 {

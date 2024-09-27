@@ -35,17 +35,25 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 
 	r.ServeFiles("/public/*filepath", http.Dir("public"))
 
+	r.POST("/upload", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.UploadPOST(rw, r, rdb)
+	}) //передача данных Юридического лица (регистрация)
+
+	r.POST("/signupUserByEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SignupUserByEmailPOST(rw, r, rdb)
+	}) //пользователь укзывает почту(регистрация)
+
+	r.POST("/enterCodeFromEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.EnterCodeFromEmailPOST(rw, r, rdb)
+	}) //пользователь укзывает почту(регистрация)
+
 	r.POST("/signupLegal", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.SignupLegalPOST(rw, r)
+		a.SignupLegalPOST(rw, r, rdb)
 	}) //передача данных Юридического лица (регистрация)
 
 	r.POST("/signupNatur", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SignupNaturPOST(rw, r, rdb)
 	}) //передача данных Физического лица (регистрация)
-
-	r.POST("/confEmailForReg", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.ConfEmailForRegPOST(rw, r, rdb)
-	}) //передача данных Физического лица (подтверждение)
 
 	r.POST("/sendCodForEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SendCodForEmail(rw, r, rdb)
@@ -232,7 +240,7 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 	}) //изменение данных для юрика
 
 	r.POST("/autorizLoginEmailSend", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.AutorizLoginEmailSendPOST(rw, r)
+		a.AutorizLoginEmailSendPOST(rw, r, rdb)
 	}) //логин отправка
 
 	r.POST("/autorizLoginEmailEnter", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {

@@ -48,8 +48,8 @@ type Account struct {
 func NewRedisClient() *redis.Client {
 	return redis.NewClient(&redis.Options{
 		Addr:     "176.124.192.39:6379", // Адрес Redis сервера
-		Password: "",               // Пароль Redis, если не используется, оставляем пустым
-		DB:       0,                // Используем базу данных 0
+		Password: "",                    // Пароль Redis, если не используется, оставляем пустым
+		DB:       0,                     // Используем базу данных 0
 	})
 }
 
