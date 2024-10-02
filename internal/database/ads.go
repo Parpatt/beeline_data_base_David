@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"myproject/internal"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgtype"
@@ -353,16 +354,6 @@ func (repo *MyRepository) SortProductListAllSQL(ctx context.Context, rw http.Res
 
 	request, err := rep.Query(ctx, ``)
 
-	fmt.Println(
-		category,
-		lowNum,
-		higNum,
-		lowDate,
-		higDate,
-		nil,
-		rating,
-	)
-
 	if location == "" {
 		request, err = rep.Query(
 			ctx,
@@ -447,7 +438,10 @@ func (repo *MyRepository) SortProductListAllSQL(ctx context.Context, rw http.Res
 	return err
 }
 
-func (repo *MyRepository) SignupAdsSQL(ctx context.Context, title string, description string, hourly_rate int, daily_rate int, owner_id int, category_id int, location string, updated_at time.Time, rw http.ResponseWriter, rep *pgxpool.Pool) (err error) {
+func (repo *MyRepository) SignupAdsSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, image, title, description string, hourly_rate, daily_rate, owner_id, category_id int, location string, updated_at time.Time) (err error) {
+	imageName := image[0:5] + strconv.Itoa(owner_id) + time.Now().Format("2001-01-01_15:04:05")
+	var pwd = "/home/beeline_project/media/ads/" + imageName
+
 	request, err := rep.Query(ctx, `
 			WITH i AS (
 				INSERT INTO Ads.ads (title, description, hourly_rate, daily_rate, owner_id, category_id, location, updated_at) 
@@ -471,7 +465,7 @@ func (repo *MyRepository) SignupAdsSQL(ctx context.Context, title string, descri
 		location,
 		updated_at,
 
-		"{C:/, C:/}",
+		pwd,
 		time.Now(),
 		false,
 	)
@@ -505,18 +499,18 @@ func (repo *MyRepository) SignupAdsSQL(ctx context.Context, title string, descri
 		json.NewEncoder(rw).Encode(response)
 
 		return err
-	} else {
-		response := Response{
-			Status:  "success",
-			Data:    ad_id,
-			Message: "Объявление показано",
-		}
-
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-
-		return err
 	}
+
+	response := Response{
+		Status:  "success",
+		Data:    ad_id,
+		Message: "Объявление показано",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+
+	return err
 }
 
 func (repo *MyRepository) UpdAdsSQL(ctx context.Context, title string, description string, hourly_rate int, daily_rate int, owner_id int, category_id int, location string, photoPwd string, ad_id int, updated_at time.Time, rw http.ResponseWriter, rep *pgxpool.Pool) (err error) {
@@ -1007,22 +1001,22 @@ func (repo *MyRepository) SigChatSQL(ctx context.Context, rw http.ResponseWriter
 	return err
 }
 
-func (repo *MyRepository) OpenChatSQL(ctx context.Context, rw http.ResponseWriter, id_chat int, rep *pgxpool.Pool) (err error) {
+func (repo *MyRepository) OpenChatSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, id_chat, user_id int) (err error) {
 	type Product_user struct {
-		text string
-		date time.Time
+		Text string
+		Date time.Time
 	}
-	products_user := []Product_user{}
+	Products_user := []Product_user{}
 
 	type Product_buddy struct {
-		text string
-		date time.Time
+		Text string
+		Date time.Time
 	}
-	products_buddy := []Product_buddy{}
+	Products_buddy := []Product_buddy{}
 
 	type Product struct {
-		product_userr  []Product_user
-		product_buddyy []Product_buddy
+		Product_userr  []Product_user
+		Product_buddyy []Product_buddy
 	}
 
 	request_1, err := rep.Query( //это запрос на вывод наших сообщений
@@ -1030,24 +1024,24 @@ func (repo *MyRepository) OpenChatSQL(ctx context.Context, rw http.ResponseWrite
 		"SELECT text, sent_at FROM chat.messages WHERE chat_id = $1 AND sender_id = $2;",
 
 		id_chat,
-		128, // пока не починили токены
+		user_id,
 	)
 	errorr(err)
 
-	var text string
-	var date time.Time
+	var Text string
+	var Date time.Time
 
 	for request_1.Next() {
 		err := request_1.Scan(
-			&text,
-			&date,
+			&Text,
+			&Date,
 		)
 		if err != nil {
 			fmt.Println(err)
 
 			continue
 		}
-		products_user = append(products_user, Product_user{text: text, date: date})
+		Products_user = append(Products_user, Product_user{Text: Text, Date: Date})
 	}
 
 	request_2, err := rep.Query( //это запрос на вывод сообщений нашего кента
@@ -1055,22 +1049,22 @@ func (repo *MyRepository) OpenChatSQL(ctx context.Context, rw http.ResponseWrite
 		"SELECT text, sent_at FROM chat.messages WHERE chat_id = $1 AND sender_id != $2;",
 
 		id_chat,
-		128, // пока не починили токены
+		user_id,
 	)
 	errorr(err)
 
 	for request_2.Next() {
 
 		err := request_2.Scan(
-			&text,
-			&date,
+			&Text,
+			&Date,
 		)
 		if err != nil {
 			fmt.Println(err)
 
 			continue
 		}
-		products_buddy = append(products_buddy, Product_buddy{text: text, date: date})
+		Products_buddy = append(Products_buddy, Product_buddy{Text: Text, Date: Date})
 	}
 
 	type Response struct {
@@ -1079,12 +1073,12 @@ func (repo *MyRepository) OpenChatSQL(ctx context.Context, rw http.ResponseWrite
 		Message string  `json:"message"`
 	}
 
-	if err == nil && (products_user != nil || products_buddy != nil) {
+	if err == nil && (Products_user != nil || Products_buddy != nil) {
 		response := Response{
 			Status: "success",
 			Data: Product{
-				product_userr:  products_user,
-				product_buddyy: products_buddy,
+				Product_userr:  Products_user,
+				Product_buddyy: Products_buddy,
 			},
 			Message: "Показано",
 		}
@@ -1161,7 +1155,7 @@ func (repo *MyRepository) SendMessageSQL(ctx context.Context, rw http.ResponseWr
 }
 
 func (repo *MyRepository) SigDisputInChatSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, id_chat int, id_user int) (err error) {
-	request, err := rep.Query( //это запрос на вывод наших сообщений
+	request, err := rep.Query(
 		ctx,
 		`
 		UPDATE chat.chats SET have_disput = true 
@@ -1389,21 +1383,169 @@ type DisputeChat struct {
 	Comment   string `json:"Comment"`
 }
 
+func (repo *MyRepository) MediatorStartWorkingSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, chat_id int, mediator_id int) (err error) {
+	// type User_1 struct {
+	// 	Text string
+	// 	Date time.Time
+	// }
+	// Userr_1 := []User_1{}
+
+	// type User_2 struct {
+	// 	Text string
+	// 	Date time.Time
+	// }
+	// Userr_2 := []User_2{}
+
+	// type Product struct {
+	// 	Mediator_id     int
+	// 	Id_1            int
+	// 	Products_user_1 []User_1
+	// 	Id_2            int
+	// 	Products_user_2 []User_2
+	// }
+
+	// request, err := rep.Query(
+	// 	ctx,
+	// 	`SELECT user_1_id FROM chat.chats WHERE id = $1;`, chat_id)
+
+	// errorr(err)
+
+	// var User_1_id int
+	// for request.Next() {
+	// 	err := request.Scan(
+	// 		&User_1_id,
+	// 	)
+	// 	if err != nil {
+	// 		fmt.Println(err)
+	// 		continue
+	// 	}
+	// }
+
+	// request, err = rep.Query(
+	// 	ctx,
+	// 	`SELECT user_2_id FROM chat.chats WHERE id = $1;`, chat_id)
+
+	// errorr(err)
+
+	// var User_2_id int
+	// for request.Next() {
+	// 	err := request.Scan(
+	// 		&User_2_id,
+	// 	)
+	// 	if err != nil {
+	// 		fmt.Println(err)
+	// 		continue
+	// 	}
+	// }
+
+	// request, err = rep.Query(
+	// 	ctx,
+	// 	`SELECT text, sent_at FROM chat.messages WHERE chat_id = $1 AND sender_id = $2;`, chat_id, User_1_id)
+
+	// errorr(err)
+
+	// for request.Next() {
+	// 	p := User_1{}
+	// 	err := request.Scan(
+	// 		&p.Text,
+	// 		&p.Date,
+	// 	)
+	// 	if err != nil {
+	// 		fmt.Println(err)
+
+	// 		continue
+	// 	}
+	// 	Userr_1 = append(Userr_1, User_1{Text: p.Text, Date: p.Date})
+	// }
+
+	// request, err = rep.Query(
+	// 	ctx,
+	// 	`SELECT text, sent_at FROM chat.messages WHERE chat_id = $1 AND sender_id = $2;`, chat_id, User_2_id)
+
+	// errorr(err)
+
+	// for request.Next() {
+	// 	p := User_2{}
+	// 	err := request.Scan(
+	// 		&p.Text,
+	// 		&p.Date,
+	// 	)
+	// 	if err != nil {
+	// 		fmt.Println(err)
+
+	// 		continue
+	// 	}
+	// 	Userr_2 = append(Userr_2, User_2{Text: p.Text, Date: p.Date})
+	// }
+
+	request, err := rep.Query( //это запрос на вывод наших сообщений
+		ctx,
+		`
+		UPDATE chat.chats SET mediator_id = $1 
+		WHERE id = $2
+		RETURNING mediator_id;`,
+
+		mediator_id,
+		chat_id,
+	)
+	errorr(err)
+
+	var Id_mediator int
+
+	for request.Next() {
+		err := request.Scan(
+			&Id_mediator,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+	}
+
+	type Response struct {
+		Status  string `json:"status"`
+		Data    int    `json:"data,omitempty"`
+		Message string `json:"message"`
+	}
+
+	if err == nil && Id_mediator != 0 {
+		response := Response{
+			Status:  "success",
+			Data:    Id_mediator,
+			Message: "Показано",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+
+		return err
+	}
+
+	response := Response{
+		Status:  "fatal",
+		Message: "Не показано",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+
+	return err
+}
+
 func (repo *MyRepository) MediatorEnterInChatSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, chat_id int, mediator_id int) (err error) {
 	type User_1 struct {
 		Text string
 		Date time.Time
 	}
-	user_1 := []User_1{}
+	Userr_1 := []User_1{}
 
 	type User_2 struct {
 		Text string
 		Date time.Time
 	}
-	user_2 := []User_2{}
+	Userr_2 := []User_2{}
 
 	type Product struct {
-		Mediator_id     int
 		Id_1            int
 		Products_user_1 []User_1
 		Id_2            int
@@ -1416,10 +1558,10 @@ func (repo *MyRepository) MediatorEnterInChatSQL(ctx context.Context, rw http.Re
 
 	errorr(err)
 
-	var user_1_id int
+	var User_1_id int
 	for request.Next() {
 		err := request.Scan(
-			&user_1_id,
+			&User_1_id,
 		)
 		if err != nil {
 			fmt.Println(err)
@@ -1433,10 +1575,10 @@ func (repo *MyRepository) MediatorEnterInChatSQL(ctx context.Context, rw http.Re
 
 	errorr(err)
 
-	var user_2_id int
+	var User_2_id int
 	for request.Next() {
 		err := request.Scan(
-			&user_2_id,
+			&User_2_id,
 		)
 		if err != nil {
 			fmt.Println(err)
@@ -1446,7 +1588,7 @@ func (repo *MyRepository) MediatorEnterInChatSQL(ctx context.Context, rw http.Re
 
 	request, err = rep.Query(
 		ctx,
-		`SELECT text, sent_at FROM chat.messages WHERE chat_id = $1 AND sender_id = $2;`, chat_id, user_1_id)
+		`SELECT text, sent_at FROM chat.messages WHERE chat_id = $1 AND sender_id = $2;`, chat_id, User_1_id)
 
 	errorr(err)
 
@@ -1461,12 +1603,12 @@ func (repo *MyRepository) MediatorEnterInChatSQL(ctx context.Context, rw http.Re
 
 			continue
 		}
-		user_1 = append(user_1, User_1{Text: p.Text, Date: p.Date})
+		Userr_1 = append(Userr_1, User_1{Text: p.Text, Date: p.Date})
 	}
 
 	request, err = rep.Query(
 		ctx,
-		`SELECT text, sent_at FROM chat.messages WHERE chat_id = $1 AND sender_id = $2;`, chat_id, user_2_id)
+		`SELECT text, sent_at FROM chat.messages WHERE chat_id = $1 AND sender_id = $2;`, chat_id, User_2_id)
 
 	errorr(err)
 
@@ -1481,31 +1623,7 @@ func (repo *MyRepository) MediatorEnterInChatSQL(ctx context.Context, rw http.Re
 
 			continue
 		}
-		user_2 = append(user_2, User_2{Text: p.Text, Date: p.Date})
-	}
-
-	request, err = rep.Query( //это запрос на вывод наших сообщений
-		ctx,
-		`
-		UPDATE chat.chats SET mediator_id = $1 
-		WHERE id = $2
-		RETURNING mediator_id;`,
-
-		mediator_id,
-		chat_id,
-	)
-	errorr(err)
-
-	var id_mediator int
-
-	for request.Next() {
-		err := request.Scan(
-			&id_mediator,
-		)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
+		Userr_2 = append(Userr_2, User_2{Text: p.Text, Date: p.Date})
 	}
 
 	type Response struct {
@@ -1514,15 +1632,14 @@ func (repo *MyRepository) MediatorEnterInChatSQL(ctx context.Context, rw http.Re
 		Message string  `json:"message"`
 	}
 
-	if err == nil && (len(user_1) != 0 || len(user_2) != 0) {
+	if err == nil && (len(Userr_1) != 0 || len(Userr_2) != 0) {
 		response := Response{
 			Status: "success",
 			Data: Product{
-				Mediator_id:     mediator_id,
-				Id_1:            user_1_id,
-				Products_user_1: user_1,
-				Id_2:            user_2_id,
-				Products_user_2: user_2,
+				Id_1:            User_1_id,
+				Products_user_1: Userr_1,
+				Id_2:            User_2_id,
+				Products_user_2: Userr_2,
 			},
 			Message: "Показано",
 		}
@@ -1530,7 +1647,7 @@ func (repo *MyRepository) MediatorEnterInChatSQL(ctx context.Context, rw http.Re
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(response)
 
-		return
+		return err
 	}
 
 	response := Response{
@@ -1809,6 +1926,12 @@ func (repo *MyRepository) GroupFavByRecentSQL(ctx context.Context, rw http.Respo
 		User_id int
 		Ad_id   int
 		Reg_at  time.Time
+
+		Ad_photo_id int
+		File_path   []string
+		Title       string
+		Hourly_rate float32
+		Description string
 	}
 	products := []Product{}
 
@@ -1816,10 +1939,7 @@ func (repo *MyRepository) GroupFavByRecentSQL(ctx context.Context, rw http.Respo
 		ctx,
 		"SELECT * FROM Ads.favorite_ads GROUP BY reg_at, user_id, ad_id ORDER BY reg_at desc;",
 	)
-	if err != nil {
-		err = fmt.Errorf("failed to exec data: %w", err)
-		return
-	}
+	errorr(err)
 
 	for request.Next() {
 		p := Product{}
@@ -1832,6 +1952,48 @@ func (repo *MyRepository) GroupFavByRecentSQL(ctx context.Context, rw http.Respo
 			fmt.Println(err)
 			continue
 		}
+
+		// Обрабатываем ad_photos
+		request_ad_photo, err_ad_photo := rep.Query(
+			ctx,
+			"SELECT id, file_path FROM Ads.ad_photos WHERE ad_id = $1;",
+			p.Ad_id,
+		)
+		errorr(err_ad_photo)
+
+		// Цикл для обработки всех строк
+		for request_ad_photo.Next() {
+			err = request_ad_photo.Scan(
+				&p.Ad_photo_id,
+				&p.File_path,
+			)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+		}
+
+		// Обрабатываем ads
+		request_ads, err_ads := rep.Query(
+			ctx,
+			"SELECT title, hourly_rate, description FROM Ads.ads WHERE id = $1;",
+			p.Ad_id,
+		)
+		errorr(err_ads)
+
+		// Цикл для обработки всех строк
+		for request_ads.Next() {
+			err = request_ads.Scan(
+				&p.Title,
+				&p.Hourly_rate,
+				&p.Description,
+			)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+		}
+
 		products = append(products, p)
 	}
 
@@ -1850,18 +2012,17 @@ func (repo *MyRepository) GroupFavByRecentSQL(ctx context.Context, rw http.Respo
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(response)
 		return err
-	} else {
-		fmt.Println(products)
-		response := Response{
-			Status:  "success",
-			Data:    products,
-			Message: "Сгруппировано",
-		}
 
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-		return
 	}
+	response := Response{
+		Status:  "success",
+		Data:    products,
+		Message: "Сгруппировано",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+	return err
 }
 
 func (repo *MyRepository) GroupFavByCheaperSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool) (err error) {

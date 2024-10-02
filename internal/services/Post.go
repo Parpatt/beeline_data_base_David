@@ -13,7 +13,6 @@ import (
 	"myproject/internal/models"
 	"net/http"
 	"net/smtp"
-	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -79,18 +78,18 @@ func NewApp(Ctx context.Context, dbpool *pgxpool.Pool) *MyApp {
 	return &MyApp{internal.App{Ctx: Ctx, Repo: NewRepository(dbpool), Cache: make(map[string]models.User)}}
 }
 
-func (a *MyApp) UploadPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) (error, bool) {
+func (a *MyApp) UploadPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, pwd, imageName string) (error, bool) {
 	// Ограничиваем максимальный размер файла (например, 10 MB)
 	r.ParseMultipartForm(10 << 20)
 
 	// Извлекаем файл из формы
-	file, handler, err := r.FormFile("file")
+	file, handler, err := r.FormFile(imageName)
 	errorr(err)
 
 	defer file.Close()
 
 	// Создаем файл на сервере для сохранения загруженного файла
-	dst, err := os.Create("/home/user/beeline_project/media/user_avatar/" + handler.Filename)
+	dst, err := os.Create(pwd + handler.Filename)
 	errorr(err)
 
 	defer dst.Close()
@@ -313,26 +312,26 @@ func (a *MyApp) SignupLegalPOST(rw http.ResponseWriter, r *http.Request, redisCl
 	err := json.NewDecoder(r.Body).Decode(&user)
 	errorr(err)
 
-	// Получаем данные из Redis
-	keshData, err := redisClient.Get(ctx, "jwt").Result()
-	if err == redis.Nil {
-		log.Println("Ключ не найден")
-		http.Error(rw, "Код не найден или истек", http.StatusUnauthorized)
-		return err
-	} else if err != nil {
-		log.Fatal("Ошибка при получении данных из Redis:", err)
-		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
-		return err
-	}
+	// // Получаем данные из Redis
+	// keshData, err := redisClient.Get(ctx, "jwt").Result()
+	// if err == redis.Nil {
+	// 	log.Println("Ключ не найден")
+	// 	http.Error(rw, "Код не найден или истек", http.StatusUnauthorized)
+	// 	return err
+	// } else if err != nil {
+	// 	log.Fatal("Ошибка при получении данных из Redis:", err)
+	// 	http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+	// 	return err
+	// }
 
-	// Десериализуем JSON обратно в структуру kesh
-	var storedKesh Kesh
-	err = json.Unmarshal([]byte(keshData), &storedKesh)
-	if err != nil {
-		log.Fatal("Ошибка при десериализации данных из Redis:", err)
-		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
-		return err
-	}
+	// // Десериализуем JSON обратно в структуру kesh
+	// var storedKesh Kesh
+	// err = json.Unmarshal([]byte(keshData), &storedKesh)
+	// if err != nil {
+	// 	log.Fatal("Ошибка при десериализации данных из Redis:", err)
+	// 	http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+	// 	return err
+	// }
 
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
@@ -344,7 +343,8 @@ func (a *MyApp) SignupLegalPOST(rw http.ResponseWriter, r *http.Request, redisCl
 		user.Ind_num_taxp,
 		user.Name_of_company,
 		user.Address_name,
-		storedKesh.Email,
+		"email.com",
+		//storedKesh.Email,
 		user.Phone_number,
 		user.Password_hash,
 
@@ -367,26 +367,26 @@ func (a *MyApp) SignupNaturPOST(rw http.ResponseWriter, r *http.Request, redisCl
 	err := json.NewDecoder(r.Body).Decode(&user)
 	errorr(err)
 
-	// Получаем данные из Redis
-	keshData, err := redisClient.Get(ctx, "jwt").Result()
-	if err == redis.Nil {
-		log.Println("Ключ не найден")
-		http.Error(rw, "Код не найден или истек", http.StatusUnauthorized)
-		return err
-	} else if err != nil {
-		log.Fatal("Ошибка при получении данных из Redis:", err)
-		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
-		return err
-	}
+	// // Получаем данные из Redis
+	// keshData, err := redisClient.Get(ctx, "jwt").Result()
+	// if err == redis.Nil {
+	// 	log.Println("Ключ не найден")
+	// 	http.Error(rw, "Код не найден или истек", http.StatusUnauthorized)
+	// 	return err
+	// } else if err != nil {
+	// 	log.Fatal("Ошибка при получении данных из Redis:", err)
+	// 	http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+	// 	return err
+	// }
 
-	// Десериализуем JSON обратно в структуру kesh
-	var storedKesh Kesh
-	err = json.Unmarshal([]byte(keshData), &storedKesh)
-	if err != nil {
-		log.Fatal("Ошибка при десериализации данных из Redis:", err)
-		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
-		return err
-	}
+	// // Десериализуем JSON обратно в структуру kesh
+	// var storedKesh Kesh
+	// err = json.Unmarshal([]byte(keshData), &storedKesh)
+	// if err != nil {
+	// 	log.Fatal("Ошибка при десериализации данных из Redis:", err)
+	// 	http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+	// 	return err
+	// }
 
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
@@ -398,7 +398,8 @@ func (a *MyApp) SignupNaturPOST(rw http.ResponseWriter, r *http.Request, redisCl
 		user.Name,
 		user.Surname,
 		user.Patronymic,
-		storedKesh.Email,
+		// storedKesh.Email,
+		"email.com",
 		user.Phone_number,
 		user.Password_hash,
 
@@ -553,35 +554,9 @@ func (a *MyApp) LoginPOST(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err, user_id := repo.LoginSQL(a.app.Ctx, login.Login, login.Password, a.app.Repo.Pool, rw)
+	err = repo.LoginSQL(a.app.Ctx, login.Login, login.Password, a.app.Repo.Pool, rw)
 
 	errorr(err)
-	if user_id == 0 {
-		fmt.Errorf("Incorrect login")
-		return
-	}
-
-	// логин и пароль совпадают, поэтому генерируем токен, пишем его в кеш и в куки
-	validToken, err := jwt.GenerateJWT("имя", user_id)     //получаем токен в строковом типе
-	fmt.Println("токен в строковом формате: ", validToken) // токен
-
-	errorr(err)
-
-	a.app.Cache[validToken] = user
-
-	livingTime := 60 * time.Minute
-	expiration := time.Now().Add(livingTime)
-
-	// кука будет жить 1 час
-	cookie := http.Cookie{
-		Name:    "token",
-		Value:   url.QueryEscape(validToken),
-		Expires: expiration,
-	}
-
-	http.SetCookie(rw, &cookie)
-
-	fmt.Println(internal.ReadCookie("token", r)) // токен
 }
 
 type ProductList struct {
@@ -655,20 +630,15 @@ func (a *MyApp) SortProductListAllPOST(rw http.ResponseWriter, r *http.Request) 
 }
 
 type Ads struct {
-	Id          int    `json:"id"`
+	Image string `json:"id"`
+
+	Id          int    `json:"Id"`
 	Title       string `json:"Title"`
 	Description string `json:"Description"`
 	Hourly_rate int    `json:"Hourly_rate"`
 	Daily_rate  int    `json:"Daily_rate"`
-	// Owner_id    int       `json:"owner_id"`
 	Category_id int    `json:"Category_id"`
 	Location    string `json:"Location"`
-	// Created_at  time.Time `json:"created_at"`
-
-	// Photo_id     int    `json:"photo_id"`
-	// Ad_id        int    `json:"ad_id"`
-	// File_path    string `json:"file_path"`
-	// Status_photo bool   `json:"status_photo"`
 }
 
 func (a *MyApp) SignupAdsPOST(rw http.ResponseWriter, r *http.Request) {
@@ -683,21 +653,16 @@ func (a *MyApp) SignupAdsPOST(rw http.ResponseWriter, r *http.Request) {
 
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
-	// token, err := internal.ReadCookie("token", r)
+	// Попытка прочитать куку
+	token, err := r.Cookie("token")
+	errorr(err)
 
-	// if err != nil {
-	// 	fmt.Errorf("Ошибка создания объявления: %v", err)
-	// 	return
-	// } else {
-	// 	flag , user_id := jwt.IsAuthorized(rw, token)
-	if deleteMe {
-		err := repo.SignupAdsSQL(a.app.Ctx, ads.Title, ads.Description, ads.Hourly_rate, ads.Daily_rate, deleteMeToo, ads.Category_id, ads.Location, time.Now(), rw, a.app.Repo.Pool)
-		if err != nil {
-			fmt.Errorf("Ошибка создания объявления: %v", err)
-			return
-		}
+	flag, user_id := jwt.IsAuthorized(rw, token.Value)
+	if flag {
+		err = repo.SignupAdsSQL(a.app.Ctx, rw, a.app.Repo.Pool, ads.Image, ads.Title, ads.Description, ads.Hourly_rate, ads.Daily_rate, user_id, ads.Category_id, ads.Location, time.Now())
+
+		errorr(err)
 	}
-	//}
 }
 
 func (a *MyApp) UpdAdsPOST(rw http.ResponseWriter, r *http.Request) {
@@ -913,15 +878,14 @@ func (a *MyApp) OpenChatPOST(rw http.ResponseWriter, r *http.Request) {
 
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
-	// token, err := internal.ReadCookie("token", r)
+	token, err := internal.ReadCookie("token", r)
+	errorr(err)
 
-	// if err != nil {
-	// 	fmt.Errorf("Ошибка создания объявления: %v", err)
-	// 	return
-	// } else {
-	// 	flag , user_id := jwt.IsAuthorized(rw, token)
+	flag, user_id := jwt.IsAuthorized(rw, token)
 
-	err = repo.OpenChatSQL(a.app.Ctx, rw, openChat.Id_chat, a.app.Repo.Pool)
+	if flag {
+		err = repo.OpenChatSQL(a.app.Ctx, rw, a.app.Repo.Pool, openChat.Id_chat, user_id)
+	}
 
 	errorr(err)
 }
@@ -976,7 +940,7 @@ func (a *MyApp) SigDisputInChatPOST(rw http.ResponseWriter, r *http.Request) {
 	// } else {
 	// 	flag , user_id := jwt.IsAuthorized(rw, token)
 
-	err = repo.SigDisputInChatSQL(a.app.Ctx, rw, a.app.Repo.Pool, chat.Id_chat, 184)
+	err = repo.SigDisputInChatSQL(a.app.Ctx, rw, a.app.Repo.Pool, chat.Id_chat, 128)
 
 	errorr(err)
 }
@@ -1007,7 +971,7 @@ func (a *MyApp) SigReviewPOST(rw http.ResponseWriter, r *http.Request) {
 	// } else {
 	// 	flag , user_id := jwt.IsAuthorized(rw, token)
 
-	err = repo.SigReviewSQL(a.app.Ctx, rw, sigReview.Ads_id, 184, sigReview.Rating, sigReview.Comment, a.app.Repo.Pool)
+	err = repo.SigReviewSQL(a.app.Ctx, rw, sigReview.Ads_id, 27, sigReview.Rating, sigReview.Comment, a.app.Repo.Pool)
 
 	errorr(err)
 }
@@ -1043,6 +1007,30 @@ func (a *MyApp) UpdReviewPOST(rw http.ResponseWriter, r *http.Request) {
 	errorr(err)
 }
 
+func (a *MyApp) MediatorStartWorkingPOST(rw http.ResponseWriter, r *http.Request) {
+	var openChat Chat
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&openChat)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	token, err := internal.ReadCookie("token", r)
+
+	errorr(err)
+
+	flag, mediator_id := jwt.IsAuthorized(rw, token)
+
+	if flag {
+		err = repo.MediatorStartWorkingSQL(a.app.Ctx, rw, a.app.Repo.Pool, openChat.Id_chat, mediator_id)
+	}
+	errorr(err)
+}
+
 func (a *MyApp) MediatorEnterInChatPOST(rw http.ResponseWriter, r *http.Request) {
 	var openChat Chat
 
@@ -1055,15 +1043,15 @@ func (a *MyApp) MediatorEnterInChatPOST(rw http.ResponseWriter, r *http.Request)
 
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
-	// token, err := internal.ReadCookie("token", r)
+	token, err := internal.ReadCookie("token", r)
 
-	// if err != nil {
-	// 	fmt.Errorf("Ошибка создания объявления: %v", err)
-	// 	return
-	// } else {
-	// 	flag , user_id := jwt.IsAuthorized(rw, token)
+	errorr(err)
 
-	err = repo.MediatorEnterInChatSQL(a.app.Ctx, rw, a.app.Repo.Pool, openChat.Id_chat, 184)
+	flag, mediator_id := jwt.IsAuthorized(rw, token)
+
+	if flag {
+		err = repo.MediatorEnterInChatSQL(a.app.Ctx, rw, a.app.Repo.Pool, openChat.Id_chat, mediator_id)
+	}
 
 	errorr(err)
 }
@@ -1641,34 +1629,7 @@ func (a *MyApp) AutorizLoginEmailEnterPOST(rw http.ResponseWriter, r *http.Reque
 	}
 
 	if storedKesh.Code == code.Email_code {
-		user, err, user_id := repo.LoginSQL(a.app.Ctx, storedKesh.Login.Login, storedKesh.Login.Password, a.app.Repo.Pool, rw)
+		err := repo.LoginSQL(a.app.Ctx, storedKesh.Login.Login, storedKesh.Login.Password, a.app.Repo.Pool, rw)
 		errorr(err)
-
-		if user_id == 0 {
-			fmt.Errorf("Incorrect login")
-			return
-		}
-
-		// логин и пароль совпадают, поэтому генерируем токен, пишем его в кеш и в куки
-		validToken, err := jwt.GenerateJWT("имя", user_id)     //получаем токен в строковом типе
-		fmt.Println("токен в строковом формате: ", validToken) // токен
-
-		errorr(err)
-
-		a.app.Cache[validToken] = user
-
-		livingTime := 60 * time.Minute
-		expiration := time.Now().Add(livingTime)
-
-		// кука будет жить 1 час
-		cookie := http.Cookie{
-			Name:    "token",
-			Value:   url.QueryEscape(validToken),
-			Expires: expiration,
-		}
-
-		http.SetCookie(rw, &cookie)
-
-		fmt.Println(internal.ReadCookie("token", r)) // токен
 	}
 }

@@ -60,7 +60,7 @@ func main() {
 
 	dbpool, err := database.InitDBConn(ctx)
 	if err != nil {
-		log.Fatalf("%w failed to init DB connection", err)
+		log.Fatalf("%v failed to init DB connection", err)
 	}
 	defer dbpool.Close()
 
@@ -68,10 +68,37 @@ func main() {
 
 	a := app.NewApp(ctx, dbpool)
 	r := httprouter.New()
+
+	// Добавляем маршруты
 	a.Routes(r, ctx, dbpool, rdb)
 
-	srv := &http.Server{Addr: "176.124.192.39:8080", Handler: r}
-	fmt.Println("It is alive! Try http://176.124.192.39:8080")
-	// fmt.Printf("Account ID: %s, Balance: %.2f\n", account.ID, account.Balance)
+	// Добавляем middleware для CORS
+	handlerWithCORS := corsMiddleware(r)
+
+	srv := &http.Server{
+		Addr:    "185.112.83.36:8090",
+		Handler: handlerWithCORS,
+	}
+
+	fmt.Println("It is alive! Try http://185.112.83.36:8080")
 	srv.ListenAndServe()
+}
+
+// Middleware для добавления CORS-заголовков
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Устанавливаем необходимые CORS-заголовки
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		// Если запрос OPTIONS (preflight), отправляем успешный ответ
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Продолжаем обработку для других типов запросов
+		next.ServeHTTP(w, r)
+	})
 }

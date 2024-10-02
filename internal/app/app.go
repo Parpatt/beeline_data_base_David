@@ -37,7 +37,7 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 
 	r.POST("/upload", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.UploadPOST(rw, r, rdb)
-	}) //передача данных Юридического лица (регистрация)
+	})
 
 	r.POST("/signupUserByEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SignupUserByEmailPOST(rw, r, rdb)

@@ -11,9 +11,11 @@ import (
 	"io"
 	"log"
 	"mime/multipart"
+	"myproject/internal/jwt"
 	"myproject/internal/models"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -321,7 +323,9 @@ func (repo *MyRepository) AddNewNaturUserSQL(
 	}
 }
 
-func (repo *MyRepository) LoginSQL(ctx context.Context, login, hashedPassword string, rep *pgxpool.Pool, rw http.ResponseWriter) (u models.User, err error, id int) {
+func (repo *MyRepository) LoginSQL(ctx context.Context, login, hashedPassword string, rep *pgxpool.Pool, rw http.ResponseWriter) (err error) {
+	var u models.User
+
 	row := rep.QueryRow(ctx,
 		`SELECT id, email FROM Users.users WHERE (email = $1 AND password_hash = $2) OR (phone_number = $1 AND password_hash = $2);`,
 		login, hashedPassword)
@@ -332,6 +336,7 @@ func (repo *MyRepository) LoginSQL(ctx context.Context, login, hashedPassword st
 	type User struct {
 		Id    int    `json:"id"`
 		Login string `json:"login"`
+		JWT   string `json:"JWT"`
 	}
 
 	type Response struct {
@@ -340,12 +345,39 @@ func (repo *MyRepository) LoginSQL(ctx context.Context, login, hashedPassword st
 		Message string `json:"message"`
 	}
 
+	// Генерация JWT токена
+	validToken, err := jwt.GenerateJWT("имя", u.Id)
+	if err != nil {
+		http.Error(rw, "Error generating token", http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Println("токен в строковом формате: ", validToken)
+
 	user := User{
 		Id:    u.Id,
 		Login: login,
+		JWT:   validToken,
 	}
 
-	if err != nil {
+	// Установка куки
+	livingTime := 60 * time.Minute
+	expiration := time.Now().Add(livingTime)
+	cookie := http.Cookie{
+		Name:     "token",
+		Value:    url.QueryEscape(validToken),
+		Expires:  expiration,
+		Path:     "/",             // Убедитесь, что путь корректен
+		Domain:   "185.112.83.36", // IP-адрес вашего сервера
+		HttpOnly: true,
+		Secure:   false, // Для HTTP можно оставить false
+		SameSite: http.SameSiteLaxMode,
+	}
+
+	fmt.Printf("Кука установлена: %v\n", cookie)
+	fmt.Println(validToken)
+
+	if err != nil || u.Id == 0 {
 		response := Response{
 			Status:  "fatal",
 			Message: err.Error(),
@@ -354,17 +386,17 @@ func (repo *MyRepository) LoginSQL(ctx context.Context, login, hashedPassword st
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(response)
 		return
-	} else {
-		response := Response{
-			Status:  "success",
-			Data:    user,
-			Message: "You have successfully logged in",
-		}
-
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-		return u, err, u.Id
 	}
+
+	response := Response{
+		Status:  "success",
+		Data:    user,
+		Message: "You have successfully logged in",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+	return
 }
 
 func (repo *MyRepository) DisputeChatPanelSQL(ctx context.Context, rep *pgxpool.Pool, rw http.ResponseWriter) (err error) {
