@@ -1,21 +1,19 @@
 package database
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"mime/multipart"
 	"myproject/internal/jwt"
 	"myproject/internal/models"
 	"net/http"
 	"net/smtp"
 	"net/url"
+	"os"
 	"strconv"
 	"time"
 
@@ -67,60 +65,41 @@ type FileUploadRequest struct {
 	Data     []byte `json:"data"`
 }
 
+func DeleteFile(rw http.ResponseWriter, pwd string, images string) (bool, error) {
+	// Формируем полный путь к файлу
+	filePath := pwd + images
+
+	// Удаляем файл
+	err := os.Remove(filePath)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("Unable to delete file %s: %v", images, err), http.StatusInternalServerError)
+		return false, err
+	}
+
+	return true, nil
+}
+
+func DeleteFileMass(rw http.ResponseWriter, pwd string, images map[string]string) (bool, error) {
+	for _, imageName := range images {
+		// Формируем полный путь к файлу
+		filePath := pwd + imageName
+
+		// Удаляем файл
+		err := os.Remove(filePath)
+		if err != nil {
+			http.Error(rw, fmt.Sprintf("Unable to delete file %s: %v", imageName, err), http.StatusInternalServerError)
+			return false, err
+		}
+	}
+
+	return true, nil
+}
+
 func errorr(err error) {
 	if err != nil {
 		err = fmt.Errorf("failed to exec data: %w", err)
 		return
 	}
-}
-
-func addImage(r *http.Request, rw http.ResponseWriter, Filename, Filetype, Data string) {
-	// Декодируем Base64-строку в байты
-	imgData, err := base64.StdEncoding.DecodeString(Data)
-	errorr(err)
-
-	// Создаём multipart/form-data запрос
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-
-	// Создаем часть для передачи файла
-	part, err := writer.CreateFormFile("file", "image.png")
-	if err != nil {
-		panic("Не удалось создать часть для файла: " + err.Error())
-	}
-
-	// Записываем байты файла в запрос
-	_, err = part.Write(imgData)
-	if err != nil {
-		panic("Не удалось записать файл: " + err.Error())
-	}
-
-	// Закрываем writer для завершения формирования запроса
-	writer.Close()
-
-	// Создаем HTTP POST запрос
-	req, err := http.NewRequest("POST", "http://176.124.192.39:8080/upload", &body)
-	errorr(err)
-
-	// Устанавливаем заголовок Content-Type для multipart/form-data
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	// Отправляем запрос на сервер с использованием HTTP клиента
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		panic("Ошибка при отправке запроса: " + err.Error())
-	}
-	defer resp.Body.Close()
-
-	// Читаем ответ от сервера
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		panic("Не удалось прочитать ответ от сервера: " + err.Error())
-	}
-
-	// Выводим ответ от сервера
-	fmt.Println("Ответ от сервера:", string(respBody))
 }
 
 func (repo *MyRepository) AddNewLegalUserSQL(
@@ -136,7 +115,9 @@ func (repo *MyRepository) AddNewLegalUserSQL(
 	hashedPassword,
 	Filename,
 	Filetype,
-	Data string) (err error) {
+	Data,
+	pwd,
+	avatar string) (err error) {
 	result, errors := rep.Query(ctx, `
 			WITH i AS (
 				INSERT INTO Users.users (
@@ -156,7 +137,7 @@ func (repo *MyRepository) AddNewLegalUserSQL(
 		email,
 		phoneNum,
 		time.Now(),
-		"C:/",
+		pwd+avatar,
 
 		ind_num_taxp,
 		name_of_company,
@@ -180,7 +161,7 @@ func (repo *MyRepository) AddNewLegalUserSQL(
 		Email:         email,
 		Phone_number:  phoneNum,
 		Updated_at:    time.Now(),
-		Avatar_path:   "C:/",
+		Avatar_path:   pwd,
 		User_type:     1,
 		User_role:     1,
 
@@ -190,6 +171,9 @@ func (repo *MyRepository) AddNewLegalUserSQL(
 	}
 
 	if user_id == 0 {
+		_, err = DeleteFile(rw, pwd, avatar)
+		errorr(err)
+
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(Response{
 			Status:  "fatal",
@@ -198,6 +182,9 @@ func (repo *MyRepository) AddNewLegalUserSQL(
 
 		return
 	} else if errors != nil {
+		_, err = DeleteFile(rw, pwd, avatar)
+		errorr(err)
+
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(Response{
 			Status:  "fatal",
@@ -206,8 +193,6 @@ func (repo *MyRepository) AddNewLegalUserSQL(
 
 		return
 	} else {
-		addImage(r, rw, Filename, Filetype, Data)
-
 		response := Response{
 			Status:  "success",
 			Data:    user,
@@ -234,8 +219,11 @@ func (repo *MyRepository) AddNewNaturUserSQL(
 	hashedPassword,
 	Filename,
 	Filetype,
-	Data string) (err error) {
-	result, errors := rep.Query(ctx, `
+	Data,
+	pwd,
+	avatar string) (err error) {
+	result, errors := rep.Query(ctx,
+		`
 			WITH i AS (
 			INSERT INTO Users.users (
 				user_type, password_hash, email, phone_number, updated_at, avatar_path
@@ -254,7 +242,7 @@ func (repo *MyRepository) AddNewNaturUserSQL(
 		email,
 		phoneNum,
 		time.Now(),
-		"C:/",
+		pwd+avatar,
 
 		name,
 		surname,
@@ -292,6 +280,9 @@ func (repo *MyRepository) AddNewNaturUserSQL(
 	}
 
 	if user_id == 0 {
+		_, err = DeleteFile(rw, pwd, avatar)
+		errorr(err)
+
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(Response{
 			Status:  "fatal",
@@ -300,6 +291,9 @@ func (repo *MyRepository) AddNewNaturUserSQL(
 
 		return
 	} else if errors != nil {
+		_, err = DeleteFile(rw, pwd, avatar)
+		errorr(err)
+
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(Response{
 			Status:  "fatal",
@@ -308,7 +302,6 @@ func (repo *MyRepository) AddNewNaturUserSQL(
 
 		return
 	} else {
-		addImage(r, rw, Filename, Filetype, Data)
 
 		response := Response{
 			Status:  "success",
@@ -674,130 +667,16 @@ func (repo *MyRepository) EnterCodeForRecoveryPassWithEmailSQL(ctx context.Conte
 	return err
 }
 
-func (repo *MyRepository) EditingNaturUserDataSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id int, avatar_path string, name string, surname string, patronymic string) (err error) {
-	type NaturUser struct {
-		Id_1 int `json:"id_1" db:"id_1"`
-		Id_2 int `json:"id_2" db:"id_2"`
-
-		Avatar_path string `json:"avatar_path" db:"avatar_path"`
-		Name        string `json:"name" db:"name"`
-		Surname     string `json:"surname" db:"surname"`
-		Patronymic  string `json:"patronymic" db:"patronymic"`
-	}
-	products := []NaturUser{}
-
-	request, err := rep.Query(
-		ctx,
-		`WITH i AS (
-    		SELECT id, avatar_path FROM users.users WHERE id = $1
-		),
-		j AS (
-			SELECT name, surname, patronymic FROM users.individual_user WHERE user_id = $1
-		)
-		SELECT i.id, i.avatar_path, j.name, j.surname, j.patronymic
-		FROM i, j;`, user_id)
-
-	errorr(err)
-
-	var id int
-
-	for request.Next() {
-		p := NaturUser{}
-		err := request.Scan(
-			&id,
-			&p.Avatar_path,
-			&p.Name,
-			&p.Surname,
-			&p.Patronymic,
-		)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-
-		products = append(products, p)
-	}
-
-	if avatar_path == "" {
-		avatar_path = products[0].Avatar_path
-	}
-	if name == "" {
-		name = products[0].Name
-	}
-	if surname == "" {
-		surname = products[0].Surname
-	}
-	if patronymic == "" {
-		patronymic = products[0].Patronymic
-	}
-
-	request, err = rep.Query(
-		ctx,
-		`
-			WITH i AS (
-				UPDATE users.users SET avatar_path = $1 WHERE id = $2 RETURNING id
-			),
-			j AS (
-				UPDATE users.individual_user SET name = $3, surname = $4, patronymic = $5 WHERE user_id = $6 RETURNING user_id
-			)
-			SELECT i.id AS user_id, j.user_id AS individual_user_id
-			FROM i, j;
-		`,
-		avatar_path,
-		user_id,
-		name,
-		surname,
-		patronymic,
-		user_id)
-
-	var user_idd int
-	var individual_user_id int
-
-	for request.Next() {
-		err := request.Scan(
-			&user_idd,
-			&individual_user_id,
-		)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-	}
-
-	products[0].Id_1 = user_idd
-	products[0].Id_2 = individual_user_id
-
-	type Response struct {
-		Status  string      `json:"status"`
-		Data    []NaturUser `json:"data,omitempty"`
-		Message string      `json:"message"`
-	}
-
-	if err == nil || id != 0 || user_idd != 0 || individual_user_id != 0 {
-		response := Response{
-			Status:  "success",
-			Data:    products,
-			Message: "Показано",
-		}
-
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-
-		return err
-	}
-
-	response := Response{
-		Status:  "fatal",
-		Message: "Не показано",
-	}
-
-	rw.WriteHeader(http.StatusOK)
-	json.NewEncoder(rw).Encode(response)
-
-	return err
-}
-
-func (repo *MyRepository) EditingLegalUserDataSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id int, avatar_path string, ind_num_taxp int, name_of_company string, address_name string) (err error) {
+func (repo *MyRepository) EditingLegalUserDataSQL(
+	ctx context.Context,
+	rw http.ResponseWriter,
+	rep *pgxpool.Pool,
+	user_id int,
+	ind_num_taxp int,
+	name_of_company,
+	address_name,
+	avatar_path,
+	avatar_image string) (err error) {
 	type LegalUser struct {
 		Id_1 int `json:"id_1" db:"id_1"`
 		Id_2 int `json:"id_2" db:"id_2"`
@@ -841,9 +720,35 @@ func (repo *MyRepository) EditingLegalUserDataSQL(ctx context.Context, rw http.R
 		products = append(products, p)
 	}
 
-	if avatar_path == "" {
+	if avatar_image == "" {
 		avatar_path = products[0].Avatar_path
+	} else {
+		// Удаляем файл
+		err := os.Remove(products[0].Avatar_path)
+		if err != nil {
+			http.Error(rw, fmt.Sprintf("Unable to delete file %s: %v", products[0].Avatar_path, err), http.StatusInternalServerError)
+			return err
+		}
+
+		// Декодируем данные base64
+		data, err := base64.StdEncoding.DecodeString(avatar_image)
+		errorr(err)
+
+		// Создаем файл на сервере для сохранения декодированного файла
+		dst, err := os.Create(avatar_path + avatar_image)
+		errorr(err)
+
+		defer dst.Close()
+
+		// Записываем данные в файл
+		if _, err := dst.Write(data); err != nil {
+			http.Error(rw, fmt.Sprintf("Error writing to file %s: %v", avatar_image, err), http.StatusInternalServerError)
+			return err
+		}
+
+		dst.Close() // Закрываем файл
 	}
+
 	if ind_num_taxp == 0 {
 		ind_num_taxp = products[0].Ind_num_taxp
 	}
@@ -893,6 +798,164 @@ func (repo *MyRepository) EditingLegalUserDataSQL(ctx context.Context, rw http.R
 	type Response struct {
 		Status  string      `json:"status"`
 		Data    []LegalUser `json:"data,omitempty"`
+		Message string      `json:"message"`
+	}
+
+	if err == nil || id != 0 || user_idd != 0 || individual_user_id != 0 {
+		response := Response{
+			Status:  "success",
+			Data:    products,
+			Message: "Показано",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+
+		return err
+	}
+
+	response := Response{
+		Status:  "fatal",
+		Message: "Не показано",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+
+	return err
+}
+
+func (repo *MyRepository) EditingNaturUserDataSQL(
+	ctx context.Context,
+	rw http.ResponseWriter,
+	rep *pgxpool.Pool,
+	user_id int,
+	avatar_path,
+	name,
+	surname,
+	patronymic,
+	avatar_image string) (err error) {
+	type NaturUser struct {
+		Id_1 int `json:"id_1" db:"id_1"`
+		Id_2 int `json:"id_2" db:"id_2"`
+
+		Avatar_path string `json:"avatar_path" db:"avatar_path"`
+		Name        string `json:"name" db:"name"`
+		Surname     string `json:"surname" db:"surname"`
+		Patronymic  string `json:"patronymic" db:"patronymic"`
+	}
+	products := []NaturUser{}
+
+	request, err := rep.Query(
+		ctx,
+		`WITH i AS (
+    		SELECT id, avatar_path FROM users.users WHERE id = $1
+		),
+		j AS (
+			SELECT name, surname, patronymic FROM users.individual_user WHERE user_id = $1
+		)
+		SELECT i.id, i.avatar_path, j.name, j.surname, j.patronymic
+		FROM i, j;`, user_id)
+
+	errorr(err)
+
+	var id int
+
+	for request.Next() {
+		p := NaturUser{}
+		err := request.Scan(
+			&id,
+			&p.Avatar_path,
+			&p.Name,
+			&p.Surname,
+			&p.Patronymic,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		products = append(products, p)
+	}
+
+	if avatar_image == "" {
+		avatar_path = products[0].Avatar_path
+	} else {
+		// Удаляем файл
+		err := os.Remove(products[0].Avatar_path)
+		if err != nil {
+			http.Error(rw, fmt.Sprintf("Unable to delete file %s: %v", products[0].Avatar_path, err), http.StatusInternalServerError)
+			return err
+		}
+
+		// Декодируем данные base64
+		data, err := base64.StdEncoding.DecodeString(avatar_image)
+		errorr(err)
+
+		// Создаем файл на сервере для сохранения декодированного файла
+		dst, err := os.Create(avatar_path + avatar_image)
+		errorr(err)
+
+		defer dst.Close()
+
+		// Записываем данные в файл
+		if _, err := dst.Write(data); err != nil {
+			http.Error(rw, fmt.Sprintf("Error writing to file %s: %v", avatar_image, err), http.StatusInternalServerError)
+			return err
+		}
+
+		dst.Close() // Закрываем файл
+	}
+
+	if name == "" {
+		name = products[0].Name
+	}
+	if surname == "" {
+		surname = products[0].Surname
+	}
+	if patronymic == "" {
+		patronymic = products[0].Patronymic
+	}
+
+	request, err = rep.Query(
+		ctx,
+		`
+			WITH i AS (
+				UPDATE users.users SET avatar_path = $1 WHERE id = $2 RETURNING id
+			),
+			j AS (
+				UPDATE users.individual_user SET name = $3, surname = $4, patronymic = $5 WHERE user_id = $6 RETURNING user_id
+			)
+			SELECT i.id AS user_id, j.user_id AS individual_user_id
+			FROM i, j;
+		`,
+		avatar_path,
+		user_id,
+		name,
+		surname,
+		patronymic,
+		user_id)
+
+	var user_idd int
+	var individual_user_id int
+
+	for request.Next() {
+		err := request.Scan(
+			&user_idd,
+			&individual_user_id,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+	}
+
+	products[0].Id_1 = user_idd
+	products[0].Id_2 = individual_user_id
+
+	type Response struct {
+		Status  string      `json:"status"`
+		Data    []NaturUser `json:"data,omitempty"`
 		Message string      `json:"message"`
 	}
 

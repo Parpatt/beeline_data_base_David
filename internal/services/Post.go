@@ -3,9 +3,9 @@ package services
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"myproject/internal"
 	"myproject/internal/database"
@@ -32,6 +32,8 @@ type MyApp struct {
 }
 
 type LegalUser struct {
+	Avatar string `json:"avatar"`
+
 	Password_hash string `json:"password_hash"`
 	Email         string `json:"email" db:"email"`
 	Phone_number  string `json:"phone_number"`
@@ -46,6 +48,8 @@ type LegalUser struct {
 }
 
 type NaturUser struct {
+	Avatar string `json:"avatar"`
+
 	Password_hash string `json:"password_hash"`
 	Email         string `json:"email" db:"email"`
 	Phone_number  string `json:"phone_number"`
@@ -78,29 +82,61 @@ func NewApp(Ctx context.Context, dbpool *pgxpool.Pool) *MyApp {
 	return &MyApp{internal.App{Ctx: Ctx, Repo: NewRepository(dbpool), Cache: make(map[string]models.User)}}
 }
 
-func (a *MyApp) UploadPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, pwd, imageName string) (error, bool) {
-	// Ограничиваем максимальный размер файла (например, 10 MB)
-	r.ParseMultipartForm(10 << 20)
+func UploadFilesMass(rw http.ResponseWriter, images map[string]string, pwd string) (error, bool) {
+	for imageName, base64Data := range images {
+		// Декодируем данные base64
+		data, err := base64.StdEncoding.DecodeString(base64Data)
+		errorr(err)
 
-	// Извлекаем файл из формы
-	file, handler, err := r.FormFile(imageName)
+		// Создаем файл на сервере для сохранения декодированного файла
+		dst, err := os.Create(pwd + imageName)
+		errorr(err)
+
+		defer dst.Close()
+
+		// Записываем данные в файл
+		if _, err := dst.Write(data); err != nil {
+			http.Error(rw, fmt.Sprintf("Error writing to file %s: %v", imageName, err), http.StatusInternalServerError)
+			return err, false
+		}
+
+		dst.Close() // Закрываем файл
+	}
+
+	return nil, true
+}
+
+func UploadFiles(rw http.ResponseWriter, image string, pwd string) (error, bool) {
+	// Декодируем данные base64
+	data, err := base64.StdEncoding.DecodeString(image)
 	errorr(err)
 
-	defer file.Close()
-
-	// Создаем файл на сервере для сохранения загруженного файла
-	dst, err := os.Create(pwd + handler.Filename)
+	// Создаем файл на сервере для сохранения декодированного файла
+	dst, err := os.Create(pwd + image)
 	errorr(err)
 
 	defer dst.Close()
 
-	// Копируем содержимое загруженного файла в созданный файл на сервере
-	if _, err := io.Copy(dst, file); err != nil {
-		http.Error(rw, "Unable to save file", http.StatusInternalServerError)
+	// Записываем данные в файл
+	if _, err := dst.Write(data); err != nil {
+		http.Error(rw, fmt.Sprintf("Error writing to file %s: %v", image, err), http.StatusInternalServerError)
 		return err, false
 	}
 
-	return err, true
+	dst.Close() // Закрываем файл
+
+	return nil, true
+}
+
+func DeleteFile(rw http.ResponseWriter, pwd, imageName string) (error, bool) {
+	// Формируем полный путь к файлу
+	filePath := pwd + imageName
+
+	// Удаляем файл
+	err := os.Remove(filePath)
+	errorr(err)
+
+	return nil, true
 }
 
 func (a *MyApp) SignupUserByEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) error {
@@ -287,8 +323,6 @@ func (a *MyApp) EnterCodeFromEmailPOST(rw http.ResponseWriter, r *http.Request, 
 		return err
 	}
 
-	fmt.Println(email.Email_code == storedKesh.Code, email.Email_code, storedKesh.Code)
-
 	response := Response{
 		Status:  "fatal",
 		Message: "Объявление не найдено",
@@ -312,46 +346,53 @@ func (a *MyApp) SignupLegalPOST(rw http.ResponseWriter, r *http.Request, redisCl
 	err := json.NewDecoder(r.Body).Decode(&user)
 	errorr(err)
 
-	// // Получаем данные из Redis
-	// keshData, err := redisClient.Get(ctx, "jwt").Result()
-	// if err == redis.Nil {
-	// 	log.Println("Ключ не найден")
-	// 	http.Error(rw, "Код не найден или истек", http.StatusUnauthorized)
-	// 	return err
-	// } else if err != nil {
-	// 	log.Fatal("Ошибка при получении данных из Redis:", err)
-	// 	http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
-	// 	return err
-	// }
+	// Получаем данные из Redis
+	keshData, err := redisClient.Get(ctx, "jwt").Result()
+	if err == redis.Nil {
+		log.Println("Ключ не найден")
+		http.Error(rw, "Код не найден или истек", http.StatusUnauthorized)
+		return err
+	} else if err != nil {
+		log.Fatal("Ошибка при получении данных из Redis:", err)
+		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+		return err
+	}
 
-	// // Десериализуем JSON обратно в структуру kesh
-	// var storedKesh Kesh
-	// err = json.Unmarshal([]byte(keshData), &storedKesh)
-	// if err != nil {
-	// 	log.Fatal("Ошибка при десериализации данных из Redis:", err)
-	// 	http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
-	// 	return err
-	// }
+	// Десериализуем JSON обратно в структуру kesh
+	var storedKesh Kesh
+	err = json.Unmarshal([]byte(keshData), &storedKesh)
+	if err != nil {
+		log.Fatal("Ошибка при десериализации данных из Redis:", err)
+		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+		return err
+	}
 
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
-	err = repo.AddNewLegalUserSQL(
-		ctx,
-		a.app.Repo.Pool,
-		rw,
-		r,
-		user.Ind_num_taxp,
-		user.Name_of_company,
-		user.Address_name,
-		"email.com",
-		//storedKesh.Email,
-		user.Phone_number,
-		user.Password_hash,
+	var pwd = "/home/beeline_project/media/user/"
+	err, image_flag := UploadFiles(rw, user.Avatar, pwd)
+	errorr(err)
 
-		user.Filename,
-		user.Filetype,
-		user.Data,
-	)
+	if image_flag {
+		err = repo.AddNewLegalUserSQL(
+			ctx,
+			a.app.Repo.Pool,
+			rw,
+			r,
+			user.Ind_num_taxp,
+			user.Name_of_company,
+			user.Address_name,
+			storedKesh.Email,
+			user.Phone_number,
+			user.Password_hash,
+
+			user.Filename,
+			user.Filetype,
+			user.Data,
+			pwd,
+			user.Avatar,
+		)
+	}
 	return err
 }
 
@@ -367,47 +408,103 @@ func (a *MyApp) SignupNaturPOST(rw http.ResponseWriter, r *http.Request, redisCl
 	err := json.NewDecoder(r.Body).Decode(&user)
 	errorr(err)
 
-	// // Получаем данные из Redis
-	// keshData, err := redisClient.Get(ctx, "jwt").Result()
-	// if err == redis.Nil {
-	// 	log.Println("Ключ не найден")
-	// 	http.Error(rw, "Код не найден или истек", http.StatusUnauthorized)
-	// 	return err
-	// } else if err != nil {
-	// 	log.Fatal("Ошибка при получении данных из Redis:", err)
-	// 	http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
-	// 	return err
-	// }
+	// Получаем данные из Redis
+	keshData, err := redisClient.Get(ctx, "jwt").Result()
+	if err == redis.Nil {
+		log.Println("Ключ не найден")
+		http.Error(rw, "Код не найден или истек", http.StatusUnauthorized)
+		return err
+	} else if err != nil {
+		log.Fatal("Ошибка при получении данных из Redis:", err)
+		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+		return err
+	}
 
-	// // Десериализуем JSON обратно в структуру kesh
-	// var storedKesh Kesh
-	// err = json.Unmarshal([]byte(keshData), &storedKesh)
-	// if err != nil {
-	// 	log.Fatal("Ошибка при десериализации данных из Redis:", err)
-	// 	http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
-	// 	return err
-	// }
+	// Десериализуем JSON обратно в структуру kesh
+	var storedKesh Kesh
+	err = json.Unmarshal([]byte(keshData), &storedKesh)
+	if err != nil {
+		log.Fatal("Ошибка при десериализации данных из Redis:", err)
+		http.Error(rw, "Ошибка сервера", http.StatusInternalServerError)
+		return err
+	}
 
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
-	err = repo.AddNewNaturUserSQL(
-		ctx,
-		a.app.Repo.Pool,
-		rw,
-		r,
-		user.Name,
-		user.Surname,
-		user.Patronymic,
-		// storedKesh.Email,
-		"email.com",
-		user.Phone_number,
-		user.Password_hash,
+	var pwd = "/home/beeline_project/media/user/"
+	err, image_flag := UploadFiles(rw, user.Avatar, pwd)
+	errorr(err)
 
-		user.Filename,
-		user.Filetype,
-		user.Data,
-	)
+	if image_flag {
+		err = repo.AddNewNaturUserSQL(
+			ctx,
+			a.app.Repo.Pool,
+			rw,
+			r,
+			user.Name,
+			user.Surname,
+			user.Patronymic,
+			storedKesh.Email,
+			user.Phone_number,
+			user.Password_hash,
+
+			user.Filename,
+			user.Filetype,
+			user.Data,
+
+			pwd,
+			user.Avatar,
+		)
+	}
 	return err
+}
+
+func (a *MyApp) EditingLegalUserDataPOST(rw http.ResponseWriter, r *http.Request) {
+	var legalUser LegalUser
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&legalUser)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	token, err := internal.ReadCookie("token", r)
+	errorr(err)
+
+	flag, user_id := jwt.IsAuthorized(rw, token)
+
+	if flag {
+		err = repo.EditingLegalUserDataSQL(a.app.Ctx, rw, a.app.Repo.Pool, user_id, legalUser.Ind_num_taxp, legalUser.Name_of_company, legalUser.Address_name, "/home/beeline_project/media/user/", legalUser.Avatar)
+
+		errorr(err)
+	}
+}
+
+func (a *MyApp) EditingNaturUserDataPOST(rw http.ResponseWriter, r *http.Request) {
+	var naturUser NaturUser
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&naturUser)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	token, err := internal.ReadCookie("token", r)
+	errorr(err)
+
+	flag, user_id := jwt.IsAuthorized(rw, token)
+
+	if flag {
+		err = repo.EditingNaturUserDataSQL(a.app.Ctx, rw, a.app.Repo.Pool, user_id, naturUser.Surname, naturUser.Name, naturUser.Patronymic, "/home/beeline_project/media/user/", naturUser.Avatar)
+
+		errorr(err)
+	}
 }
 
 type Email_name struct {
@@ -630,7 +727,7 @@ func (a *MyApp) SortProductListAllPOST(rw http.ResponseWriter, r *http.Request) 
 }
 
 type Ads struct {
-	Image string `json:"id"`
+	Image []string `json:"id"`
 
 	Id          int    `json:"Id"`
 	Title       string `json:"Title"`
@@ -646,10 +743,7 @@ func (a *MyApp) SignupAdsPOST(rw http.ResponseWriter, r *http.Request) {
 
 	// Парсинг JSON-запроса
 	err := json.NewDecoder(r.Body).Decode(&ads)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
+	errorr(err)
 
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
@@ -657,9 +751,20 @@ func (a *MyApp) SignupAdsPOST(rw http.ResponseWriter, r *http.Request) {
 	token, err := r.Cookie("token")
 	errorr(err)
 
-	flag, user_id := jwt.IsAuthorized(rw, token.Value)
-	if flag {
-		err = repo.SignupAdsSQL(a.app.Ctx, rw, a.app.Repo.Pool, ads.Image, ads.Title, ads.Description, ads.Hourly_rate, ads.Daily_rate, user_id, ads.Category_id, ads.Location, time.Now())
+	token_flag, user_id := jwt.IsAuthorized(rw, token.Value)
+
+	var pwd = "/home/beeline_project/media/ads/"
+	var images map[string]string
+
+	for i := 0; i < len(ads.Image); i++ {
+		images[ads.Image[i][0:5]+strconv.Itoa(user_id)+time.Now().Format("2001-01-01_15:04:05")] = (pwd + images[ads.Image[i][0:5]+strconv.Itoa(user_id)+time.Now().Format("2001-01-01_15:04:05")])
+	}
+
+	err, image_flag := UploadFilesMass(rw, images, pwd)
+	errorr(err)
+
+	if token_flag && image_flag {
+		err = repo.SignupAdsSQL(a.app.Ctx, rw, a.app.Repo.Pool, ads.Title, ads.Description, ads.Hourly_rate, ads.Daily_rate, user_id, ads.Category_id, ads.Location, time.Now(), images, pwd)
 
 		errorr(err)
 	}
@@ -670,28 +775,30 @@ func (a *MyApp) UpdAdsPOST(rw http.ResponseWriter, r *http.Request) {
 
 	// Парсинг JSON-запроса
 	err := json.NewDecoder(r.Body).Decode(&ads)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
+	errorr(err)
 
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
-	// token, err := internal.ReadCookie("token", r)
+	// Попытка прочитать куку
+	token, err := r.Cookie("token")
+	errorr(err)
 
-	// if err != nil {
-	// 	fmt.Errorf("Ошибка создания объявления: %v", err)
-	// 	return
-	// } else {
-	// 	flag , user_id := jwt.IsAuthorized(rw, token)
-	if deleteMe {
-		err := repo.UpdAdsSQL(a.app.Ctx, ads.Title, ads.Description, ads.Hourly_rate, ads.Daily_rate, deleteMeToo, ads.Category_id, ads.Location, "{C:/, C:/}", ads.Id, time.Now(), rw, a.app.Repo.Pool)
-		if err != nil {
-			fmt.Errorf("Ошибка создания объявления: %v", err)
-			return
-		}
+	token_flag, user_id := jwt.IsAuthorized(rw, token.Value)
+
+	var pwd = "/home/beeline_project/media/ads/"
+	var images map[string]string
+
+	for i := 0; i < len(ads.Image); i++ {
+		images[ads.Image[i][0:5]+strconv.Itoa(user_id)+time.Now().Format("2001-01-01_15:04:05")] = (pwd + images[ads.Image[i][0:5]+strconv.Itoa(user_id)+time.Now().Format("2001-01-01_15:04:05")])
 	}
-	//}
+
+	err, image_flag := UploadFilesMass(rw, images, pwd)
+
+	if token_flag && image_flag {
+		err := repo.UpdAdsSQL(a.app.Ctx, rw, a.app.Repo.Pool, ads.Title, ads.Description, ads.Hourly_rate, ads.Daily_rate, user_id, ads.Category_id, ads.Location, pwd, ads.Id, time.Now(), pwd, images)
+
+		errorr(err)
+	}
 }
 
 func (a *MyApp) DelAdsPOST(rw http.ResponseWriter, r *http.Request) {
@@ -893,6 +1000,7 @@ func (a *MyApp) OpenChatPOST(rw http.ResponseWriter, r *http.Request) {
 type SendMess struct {
 	Id_chat int    `json:"Id_chat"`
 	Text    string `json:"Text"`
+	Image   string `json:"Image"`
 }
 
 func (a *MyApp) SendMessagePOST(rw http.ResponseWriter, r *http.Request) {
@@ -907,17 +1015,15 @@ func (a *MyApp) SendMessagePOST(rw http.ResponseWriter, r *http.Request) {
 
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
-	// token, err := internal.ReadCookie("token", r)
+	token, err := internal.ReadCookie("token", r)
 
-	// if err != nil {
-	// 	fmt.Errorf("Ошибка создания объявления: %v", err)
-	// 	return
-	// } else {
-	// 	flag , user_id := jwt.IsAuthorized(rw, token)
+	flag, user_id := jwt.IsAuthorized(rw, token)
 
-	err = repo.SendMessageSQL(a.app.Ctx, rw, sendMess.Id_chat, 185, sendMess.Text, a.app.Repo.Pool)
+	if flag {
+		err = repo.SendMessageSQL(a.app.Ctx, rw, a.app.Repo.Pool, sendMess.Id_chat, user_id, sendMess.Text, sendMess.Image)
 
-	errorr(err)
+		errorr(err)
+	}
 }
 
 func (a *MyApp) SigDisputInChatPOST(rw http.ResponseWriter, r *http.Request) {
@@ -1433,62 +1539,6 @@ func (a *MyApp) EnterCodeForRecoveryPassWithEmailPOST(rw http.ResponseWriter, r 
 		http.Error(rw, "Неверный код подтверждения", http.StatusUnauthorized)
 	}
 	errorr(err)
-}
-
-func (a *MyApp) EditingNaturUserDataPOST(rw http.ResponseWriter, r *http.Request) {
-	var naturUser NaturUser
-
-	//запрос к счёту
-
-	//если всё ок, то продолжаем
-
-	// Парсинг JSON-запроса
-	err := json.NewDecoder(r.Body).Decode(&naturUser)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
-
-	// token, err := internal.ReadCookie("token", r)
-
-	// if err != nil {
-	// 	fmt.Errorf("Ошибка создания объявления: %v", err)
-	// 	return
-	// } else {
-	// 	flag , user_id := jwt.IsAuthorized(rw, token)
-
-	// err = repo.EditingNaturUserDataSQL(a.app.Ctx, rw, a.app.Repo.Pool, 27, naturUser.Avatar_path, naturUser.Name, naturUser.Surname, naturUser.Patronymic)
-
-	// errorr(err)
-}
-
-func (a *MyApp) EditingLegalUserDataPOST(rw http.ResponseWriter, r *http.Request) {
-	var legalUser LegalUser
-
-	//если всё ок, то продолжаем
-
-	// Парсинг JSON-запроса
-	err := json.NewDecoder(r.Body).Decode(&legalUser)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
-
-	// token, err := internal.ReadCookie("token", r)
-
-	// if err != nil {
-	// 	fmt.Errorf("Ошибка создания объявления: %v", err)
-	// 	return
-	// } else {
-	// 	flag , user_id := jwt.IsAuthorized(rw, token)
-
-	// err = repo.EditingLegalUserDataSQL(a.app.Ctx, rw, a.app.Repo.Pool, 28, legalUser.Avatar_path, legalUser.Ind_num_taxp, legalUser.Name_of_company, legalUser.Address_name)
-
-	// errorr(err)
 }
 
 func (a *MyApp) AutorizLoginEmailSendPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {

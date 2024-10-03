@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"myproject/internal"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/jackc/pgtype"
@@ -438,10 +437,20 @@ func (repo *MyRepository) SortProductListAllSQL(ctx context.Context, rw http.Res
 	return err
 }
 
-func (repo *MyRepository) SignupAdsSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, image, title, description string, hourly_rate, daily_rate, owner_id, category_id int, location string, updated_at time.Time) (err error) {
-	imageName := image[0:5] + strconv.Itoa(owner_id) + time.Now().Format("2001-01-01_15:04:05")
-	var pwd = "/home/beeline_project/media/ads/" + imageName
-
+func (repo *MyRepository) SignupAdsSQL(
+	ctx context.Context,
+	rw http.ResponseWriter,
+	rep *pgxpool.Pool,
+	title,
+	description string,
+	hourly_rate,
+	daily_rate,
+	owner_id,
+	category_id int,
+	location string,
+	updated_at time.Time,
+	images map[string]string,
+	pwd string) (err error) {
 	request, err := rep.Query(ctx, `
 			WITH i AS (
 				INSERT INTO Ads.ads (title, description, hourly_rate, daily_rate, owner_id, category_id, location, updated_at) 
@@ -489,6 +498,20 @@ func (repo *MyRepository) SignupAdsSQL(ctx context.Context, rw http.ResponseWrit
 	}
 
 	if err != nil || ad_id <= 0 {
+		flag, file_err := DeleteFileMass(rw, pwd, images)
+		if flag {
+			response := Response{
+				Status:  "fatal",
+				Data:    0,
+				Message: "Проблемы с удалением фото: " + file_err.Error(),
+			}
+
+			rw.WriteHeader(http.StatusOK)
+			json.NewEncoder(rw).Encode(response)
+
+			return err
+		}
+
 		response := Response{
 			Status:  "fatal",
 			Data:    0,
@@ -513,7 +536,23 @@ func (repo *MyRepository) SignupAdsSQL(ctx context.Context, rw http.ResponseWrit
 	return err
 }
 
-func (repo *MyRepository) UpdAdsSQL(ctx context.Context, title string, description string, hourly_rate int, daily_rate int, owner_id int, category_id int, location string, photoPwd string, ad_id int, updated_at time.Time, rw http.ResponseWriter, rep *pgxpool.Pool) (err error) {
+func (repo *MyRepository) UpdAdsSQL(
+	ctx context.Context,
+	rw http.ResponseWriter,
+	rep *pgxpool.Pool,
+	title,
+	description string,
+	hourly_rate,
+	daily_rate,
+	owner_id,
+	category_id int,
+	location,
+	photoPwd string,
+	ad_id int,
+	updated_at time.Time,
+	pwd string,
+	images map[string]string,
+) (err error) {
 	request, err := rep.Query(ctx,
 		`SELECT title, description, hourly_rate, daily_rate, category_id, location FROM Ads.ads WHERE id = $1;`,
 
@@ -685,9 +724,22 @@ func (repo *MyRepository) UpdAdsSQL(ctx context.Context, title string, descripti
 			photoPwd,
 			time.Now())
 		if err != nil && err_ads != nil {
-			err = fmt.Errorf("failed to exec data: %w", err)
+			flag, file_err := DeleteFileMass(rw, pwd, images)
+			if flag {
+				response := Response{
+					Status:  "fatal",
+					Data:    0,
+					Message: "Проблемы с удалением фото: " + file_err.Error(),
+				}
+
+				rw.WriteHeader(http.StatusOK)
+				json.NewEncoder(rw).Encode(response)
+
+				return err
+			}
+
 			response := Response{
-				Status:  "success",
+				Status:  "fatal",
 				Data:    0,
 				Message: "Объявление показано",
 			}
@@ -695,16 +747,17 @@ func (repo *MyRepository) UpdAdsSQL(ctx context.Context, title string, descripti
 			rw.WriteHeader(http.StatusOK)
 			json.NewEncoder(rw).Encode(response)
 			return err
-		} else {
-			response := Response{
-				Status:  "success",
-				Data:    ad_id,
-				Message: "Объявление показано",
-			}
-
-			rw.WriteHeader(http.StatusOK)
-			json.NewEncoder(rw).Encode(response)
 		}
+
+		response := Response{
+			Status:  "success",
+			Data:    ad_id,
+			Message: "Объявление показано",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+
 	}
 
 	return
@@ -1100,7 +1153,7 @@ func (repo *MyRepository) OpenChatSQL(ctx context.Context, rw http.ResponseWrite
 	return err
 }
 
-func (repo *MyRepository) SendMessageSQL(ctx context.Context, rw http.ResponseWriter, id_chat int, id_user int, text string, rep *pgxpool.Pool) (err error) {
+func (repo *MyRepository) SendMessageSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, id_chat, id_user int, text, images string) (err error) {
 	request, err := rep.Query( //это запрос на вывод наших сообщений
 		ctx,
 		"INSERT INTO Chat.messages(chat_id, sender_id, text) VALUES ($1, $2, $3) RETURNING id;",

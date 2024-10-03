@@ -35,10 +35,6 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 
 	r.ServeFiles("/public/*filepath", http.Dir("public"))
 
-	r.POST("/upload", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.UploadPOST(rw, r, rdb)
-	})
-
 	r.POST("/signupUserByEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SignupUserByEmailPOST(rw, r, rdb)
 	}) //пользователь укзывает почту(регистрация)
@@ -54,6 +50,14 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 	r.POST("/signupNatur", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SignupNaturPOST(rw, r, rdb)
 	}) //передача данных Физического лица (регистрация)
+
+	r.POST("/editingLegalUserData", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.EditingLegalUserDataPOST(rw, r)
+	}) //изменение данных для юрика
+
+	r.POST("/editingNaturUserData", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.EditingNaturUserDataPOST(rw, r)
+	}) //изменение данных для физика
 
 	r.POST("/sendCodForEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SendCodForEmail(rw, r, rdb)
@@ -230,14 +234,6 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 	r.POST("/enterCodeForRecoveryPassWithEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.EnterCodeForRecoveryPassWithEmailPOST(rw, r, rdb)
 	}) //восстановление пароля через почту(отправление на почту)
-
-	r.POST("/editingNaturUserData", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.EditingNaturUserDataPOST(rw, r)
-	}) //изменение данных для физика
-
-	r.POST("/editingLegalUserData", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.EditingLegalUserDataPOST(rw, r)
-	}) //изменение данных для юрика
 
 	r.POST("/autorizLoginEmailSend", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.AutorizLoginEmailSendPOST(rw, r, rdb)
