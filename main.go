@@ -15,7 +15,6 @@ import (
 )
 
 const apiUrl = "https://api.t-bank.com/v1/nominal-accounts" // Инициализация клиента Redis
-
 func NewRedisClient() *redis.Client {
 	return redis.NewClient(&redis.Options{
 		Addr:     "185.112.83.36:6379", // Проверьте, что адрес и порт верные
