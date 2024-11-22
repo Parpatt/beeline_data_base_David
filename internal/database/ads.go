@@ -2,117 +2,125 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
-	"myproject/internal"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
-type MyRepository struct {
-	app *internal.Repository
-}
-
-func NewRepo(Ctx context.Context, dbpool *pgxpool.Pool) *MyRepository {
-	return &MyRepository{&internal.Repository{}}
-}
-
-func (repo *MyRepository) ProductListSQL(ctx context.Context, rw http.ResponseWriter, ads_list []int, rep *pgxpool.Pool) (err error) {
-	request, err := rep.Query(
-		ctx,
-		`SELECT id FROM orders.orders WHERE ad_id = 144 ORDER BY created_at LIMIT 1;`)
-	errorr(err)
-
-	var order_id int
-	for request.Next() {
-		err := request.Scan(
-			&order_id,
-		)
-		if err != nil {
-			fmt.Errorf("Error", err)
-			continue
-		}
+func ConvertToString(oldStr *string) string {
+	if oldStr != nil {
+		return *oldStr // разыменуем указатель и присвоим значение в str
+	} else {
+		return "" // можно использовать пустую строку или любое другое значение по умолчанию
 	}
+}
 
-	/*
-		SELECT starts_at, ends_at FROM orders.bookings
-			WHERE order_id = 22 AND starts_at > '0002-01-01' AND ends_at > '0002-01-01'
-				ORDER BY created_at LIMIT 1;
-	*/
-
+func (repo *MyRepository) ProductListSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, r *http.Request, user_id *int, ads_list []int) (err error) {
 	type Product struct {
-		File_path     []string
+		Ads_path    string //это фотки объявления
+		Avatar_path string //это аватарка юзера
+
+		Ads_photo string
+		Avatar    string
+
 		Title         string
-		Hourly_rate   float64
+		Hourly_rate   int
 		Description   string
-		Duration      []string
+		Duration      string
 		Created_at    time.Time
-		Favorite_flag []bool
-		User_avatar   string
+		Favorite_flag bool
 		User_name     string
 		Rating        float64
-		Review_count  []int
+		Review_count  int
 
 		Ads_id      int
 		Owner_id    int
 		Category_id int
 	}
+
+	var Duration_mass []string
+	var Favorite_flag_mass []bool
+	var Review_count_mass []int
+
 	products := []Product{}
-	request, err = rep.Query(
+	request, err := rep.Query(
 		ctx,
 		`
+		WITH duration AS (
+			SELECT 
+				ads.id,
+				ads.owner_id,
+				ARRAY[
+					MAX(bookings.starts_at),
+					MAX(bookings.ends_at)
+				] AS date_range
+			FROM ads.ads
+			LEFT JOIN orders.orders 
+				ON orders.ad_id = ads.id
+			LEFT JOIN orders.bookings 
+				ON bookings.order_id = orders.id
+			WHERE ads.id = ANY($2::INT[])
+			GROUP BY ads.id, ads.owner_id
+		)
 		SELECT
-			t1.File_path,
-			t2.Title,
+			COALESCE(t1.File_path::TEXT, '/root/'),
+			t2.Title::TEXT,
 			t2.Hourly_rate,
-			t2.Description,
-			Duration('{
-				2025-09-13 07:56:12, 2025-07-12 07:56:12,
-				2025-09-14 07:56:12, 2025-07-12 07:56:12,
-				2025-09-15 07:56:12, 2025-07-12 07:56:12
-			}'),
+			t2.Description::TEXT,
+			Duration(
+				(SELECT d.date_range::date[] FROM duration d WHERE d.id = t2.id)
+			) AS duration_result, -- Функция принимает массив
 			t2.Created_at,
-			Favorite_flag(32, $1),
-			t4.Avatar_path as User_avatar,
-			t3.Name as User_name,
+			Favorite_flag($1, $2::INT[]),
+			t4.Avatar_path::TEXT as User_avatar,
+			COALESCE(t3.Name::TEXT, t5.name_of_company::TEXT) as User_name,
 			t4.Rating,
-			Review_count($1),
-			
+			Review_count($2::INT[]),
 			t2.Id as Ads_id,
 			t2.Owner_id,
 			t2.Category_id
 		FROM
-			ads.ad_photos t1
-		INNER JOIN
 			ads.ads t2
-			ON t2.id = t1.ad_id AND t2.status = true
-		INNER JOIN
+		LEFT JOIN
+			ads.ad_photos t1
+			ON t2.id = t1.ad_id  -- Соединение на уровне объявления
+		LEFT JOIN
 			users.individual_user t3
 			ON t3.user_id = t2.owner_id
-		INNER JOIN
+		LEFT JOIN
+			users.company_user t5
+			ON t5.user_id = t2.owner_id
+		LEFT JOIN
 			users.users t4
 			ON t4.id = t2.owner_id
-		LIMIT 3;
-		`, ads_list)
+		WHERE
+			t2.status = true
+			AND t2.id = ANY($2::INT[]);
+		`,
+		user_id,
+		ads_list)
 	errorr(err)
 
 	for request.Next() {
 		p := Product{}
 		err := request.Scan(
-			&p.File_path,
+			&p.Ads_path, //кладем сюда множество, длиною в три ӕлемента, с путями фоток
 			&p.Title,
 			&p.Hourly_rate,
 			&p.Description,
-			&p.Duration,
+			&Duration_mass,
 			&p.Created_at,
-			&p.Favorite_flag,
-			&p.User_avatar,
+			&Favorite_flag_mass,
+			&p.Avatar_path,
 			&p.User_name,
 			&p.Rating,
-			&p.Review_count,
+			&Review_count_mass,
 
 			&p.Ads_id,
 			&p.Owner_id,
@@ -125,13 +133,25 @@ func (repo *MyRepository) ProductListSQL(ctx context.Context, rw http.ResponseWr
 		products = append(products, p)
 	}
 
+	for i := 0; i < len(products); i++ { //пока что у нас три объявления
+		// products[i].Duration = Duration_mass[i]
+		products[i].Favorite_flag = Favorite_flag_mass[i]
+		products[i].Review_count = Review_count_mass[i]
+
+		for j := 0; j < len(products[i].Ads_path); j++ {
+			products[i].Ads_photo = ServeSpecificMediaBase64(rw, r, products[i].Ads_path)
+		}
+
+		products[i].Avatar = ServeSpecificMediaBase64(rw, r, products[i].Avatar_path)
+	}
+
 	type Response struct {
 		Status  string    `json:"status"`
 		Data    []Product `json:"data,omitempty"`
 		Message string    `json:"message"`
 	}
 
-	if err != nil || products == nil {
+	if err != nil || len(products) == 0 {
 		response := Response{
 			Status:  "fatal",
 			Message: "Не показано",
@@ -139,30 +159,34 @@ func (repo *MyRepository) ProductListSQL(ctx context.Context, rw http.ResponseWr
 
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(response)
-		return err
-	} else {
-		response := Response{
-			Status:  "success",
-			Data:    products,
-			Message: "Показано",
-		}
 
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-		return
+		return err
 	}
+
+	response := Response{
+		Status:  "success",
+		Data:    products,
+		Message: "Показано",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+	return
 }
 
 type CustomerReviews struct {
-	Name       string    `json:"Name"`
-	Updated_at time.Time `json:"Updated_at"`
-	Rating     int       `json:"Rating"`
-	Comment    string    `json:"Comment"`
+	Avatar      string    `json:"Avatar"`
+	Avatar_path string    `json:"Avatar_path"`
+	Name        string    `json:"Name"`
+	Updated_at  time.Time `json:"Updated_at"`
+	Rating      int       `json:"Rating"`
+	Comment     string    `json:"Comment"`
 }
 
 type ForPrintAds struct {
 	Title            string            `json:"Title"`
-	File_path        []string          `json:"File_path"`
+	Images           []string          `json:"Imags"`
+	Image_path       []string          `json:"File_path"`
 	Updated_at       time.Time         `json:"Updated_at"`
 	Description      string            `json:"Description"`
 	Location         string            `json:"Location"`
@@ -170,58 +194,95 @@ type ForPrintAds struct {
 	Customer_reviews []CustomerReviews `json:"Customer_reviews"`
 	Review_count     int               `json:"Review_count"`
 	Hourly_rate      int               `json:"Hourly_rate"`
+	Daily_rate       int               `json:"Daily_rate"`
 	Ads_id           int               `json:"Ads_id"`
 	Owner_id         int               `json:"Owner_id"`
 	Owner_host_name  string            `json:"Owner_host_name"`
+	Ind_num_taxp     int64             `json:"Ind_num_taxp"`
 	Rating           float64           `json:"Rating"`
 	All_Review_count int               `json:"All_Review_count"`
 	Ads_count        int               `json:"Ads_count"` //это
 }
 
-func (repo *MyRepository) PrintAdsSQL(ctx context.Context, rw http.ResponseWriter, id int, rep *pgxpool.Pool) (err error) {
+func (repo *MyRepository) PrintAdsSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, r *http.Request, id int) (err error) {
 	prod := []ForPrintAds{}
 
 	request, err := rep.Query(ctx,
 		`
 		SELECT
 			t2.title,
-			t1.file_path,
+			t1.file_path,  -- может быть NULL, если нет записи в ad_photos
 			t2.updated_at,
 			t2.description,
 			t2.location,
 			t2.position,
 			t2.hourly_rate,
+			t2.daily_rate,
 			t2.id as ads_id,
 			t2.owner_id,
-			t3.Name as owner_host_name,
+			ind_us.Name as owner_host_name,
+			comp_us.ind_num_taxp,
 			t4.rating
 
 		FROM
-			ads.ad_photos t1
-		INNER JOIN
 			ads.ads t2
-			ON t2.id = t1.ad_id AND t2.status = true AND t2.id = $1
+		LEFT JOIN
+			ads.ad_photos t1
+			ON t2.id = t1.ad_id
+		LEFT JOIN
+			users.individual_user ind_us
+			ON ind_us.user_id = t2.owner_id
+		LEFT JOIN
+			users.company_user comp_us
+			ON comp_us.user_id = t2.owner_id
 		INNER JOIN
-			users.individual_user t3
-			ON t3.user_id = t2.owner_id
-		INNER JOIN
-			users.users t4 ON t2.owner_id = t4.id;
+			users.users t4
+			ON t2.owner_id = t4.id
+		WHERE
+			t2.status = true AND t2.id = $1
+		LIMIT 1;
 		`, id)
 
 	for request.Next() {
 		p := ForPrintAds{}
+		var imagePath sql.NullString
+		var ownerHostName sql.NullString
+		var indNumTaxp sql.NullInt64
 		err := request.Scan(
 			&p.Title,
-			&p.File_path,
+			&imagePath, // Используем sql.NullString для Image_path
 			&p.Updated_at,
 			&p.Description,
 			&p.Location,
 			&p.Position,
 			&p.Hourly_rate,
+			&p.Daily_rate,
 			&p.Ads_id,
 			&p.Owner_id,
-			&p.Owner_host_name,
+			&ownerHostName,
+			&indNumTaxp,
 			&p.Rating)
+
+		if imagePath.Valid {
+			// Преобразуем одиночную строку в срез строк
+			p.Image_path = []string{imagePath.String}
+		} else {
+			// Если значение NULL, присваиваем пустой срез
+			p.Image_path = []string{}
+		}
+
+		if ownerHostName.Valid {
+			p.Owner_host_name = ownerHostName.String
+		} else {
+			p.Owner_host_name = "" // Или любое значение по умолчанию
+		}
+
+		if indNumTaxp.Valid {
+			p.Ind_num_taxp = indNumTaxp.Int64
+		} else {
+			p.Ind_num_taxp = 0 // Или любое значение по умолчанию
+		}
+
 		if err != nil {
 			fmt.Println(err)
 			continue
@@ -230,10 +291,41 @@ func (repo *MyRepository) PrintAdsSQL(ctx context.Context, rw http.ResponseWrite
 		prod = append(prod, p)
 	}
 
+	type Response struct {
+		Status  string      `json:"status"`
+		Data    ForPrintAds `json:"data,omitempty"`
+		Message string      `json:"message"`
+	}
+
+	if len(prod) == 0 || err != nil {
+		response := Response{
+			Status:  "fatal",
+			Message: "Объявление не найдено",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+
+		return err
+	}
+
+	if len(prod) != 0 && len(prod[0].Image_path) != 0 {
+		for j := 0; j < len(strings.Split(prod[0].Image_path[0], ",")); j++ {
+			request := ServeSpecificMediaBase64(rw, r, prod[0].Image_path[0][65*j+1:65*j+65])
+
+			if request != "" {
+				prod[0].Images = append(prod[0].Images, request)
+			} else {
+				prod[0].Images = append(prod[0].Images, " ")
+			}
+		}
+	}
+
 	request, err = rep.Query(ctx,
 		`
 		SELECT
 			t1.name,
+			t3.avatar_path,
 			t2.updated_at,
 			t2.rating,
 			t2.comment
@@ -242,6 +334,9 @@ func (repo *MyRepository) PrintAdsSQL(ctx context.Context, rw http.ResponseWrite
 		INNER JOIN
 			users.individual_user t1
 			ON t2.reviewer_id = t1.user_id
+		INNER JOIN
+			users.users t3
+			ON t3.id = t1.user_id
 		WHERE t2.ad_id = $1;
 		`, id)
 
@@ -251,6 +346,7 @@ func (repo *MyRepository) PrintAdsSQL(ctx context.Context, rw http.ResponseWrite
 		q := CustomerReviews{}
 		err := request.Scan(
 			&q.Name,
+			&q.Avatar_path,
 			&q.Updated_at,
 			&q.Rating,
 			&q.Comment)
@@ -259,7 +355,13 @@ func (repo *MyRepository) PrintAdsSQL(ctx context.Context, rw http.ResponseWrite
 			continue
 		}
 
-		mass = append(mass, CustomerReviews{q.Name, q.Updated_at, q.Rating, q.Comment})
+		mass = append(mass, CustomerReviews{"", q.Avatar_path, q.Name, q.Updated_at, q.Rating, q.Comment})
+	}
+
+	for i := 0; i < len(mass); i++ {
+		mass[i].Avatar = ServeSpecificMediaBase64(rw, r, mass[i].Avatar_path)
+
+		mass[i].Avatar_path = ""
 	}
 
 	prod[0].Customer_reviews = mass
@@ -306,13 +408,7 @@ func (repo *MyRepository) PrintAdsSQL(ctx context.Context, rw http.ResponseWrite
 	}
 	prod[0].Ads_count = len(mass_ads_count)
 
-	type Response struct {
-		Status  string      `json:"status"`
-		Data    ForPrintAds `json:"data,omitempty"`
-		Message string      `json:"message"`
-	}
-
-	if err != nil || len(prod) == 0 {
+	if err != nil {
 		response := Response{
 			Status:  "fatal",
 			Message: "Объявление не найдено",
@@ -323,9 +419,28 @@ func (repo *MyRepository) PrintAdsSQL(ctx context.Context, rw http.ResponseWrite
 
 		return err
 	} else {
+		data := ForPrintAds{
+			Title:            prod[0].Title,
+			Images:           prod[0].Images,
+			Updated_at:       prod[0].Updated_at,
+			Description:      prod[0].Description,
+			Location:         prod[0].Location,
+			Position:         prod[0].Position,
+			Customer_reviews: prod[0].Customer_reviews,
+			Review_count:     prod[0].Review_count,
+			Hourly_rate:      prod[0].Hourly_rate,
+			Daily_rate:       prod[0].Daily_rate,
+			Ads_id:           prod[0].Ads_id,
+			Owner_id:         prod[0].Owner_id,
+			Owner_host_name:  prod[0].Owner_host_name,
+			Rating:           prod[0].Rating,
+			All_Review_count: prod[0].All_Review_count,
+			Ads_count:        prod[0].Ads_count,
+		}
+
 		response := Response{
 			Status:  "success",
-			Data:    prod[0],
+			Data:    data,
 			Message: "Объявление показано",
 		}
 
@@ -336,68 +451,131 @@ func (repo *MyRepository) PrintAdsSQL(ctx context.Context, rw http.ResponseWrite
 	}
 }
 
-func (repo *MyRepository) SortProductListAllSQL(ctx context.Context, rw http.ResponseWriter, category []int, lowNum, higNum int, lowDate, higDate time.Time, location string, rating int, rep *pgxpool.Pool) (err error) {
+func (repo *MyRepository) SortProductListDailyRateSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, r *http.Request, category []int, lowNum, higNum int, lowDate, higDate time.Time, position []float64, distance, rating int) (err error) {
 	type Product struct {
-		File_path   []string
-		Hourly_rate int
-		Title       string
-		Category_id int
-		Name        string
-		Id          int
-		Owner_id    int
-		Ads_rating  float64
+		Id *int
+
+		Ads_path  *string
+		Ads_photo string
+
+		Daily_rate         *int
+		Title              *string
+		Category_id        *int
+		Name               *string
+		Surname_or_ind_num *string
+		Owner_id           *int
+		Rating             *float64
+
+		Avatar_path  *string
+		Avatar_photo string
 	}
 	products := []Product{}
 
 	errorr(err)
 
-	request, err := rep.Query(ctx, ``)
+	request, err := rep.Query(
+		ctx,
+		`
+		SELECT DISTINCT ON (t2.Id)
+			t2.Id,
+			t1.File_path::TEXT,
+			t2.Daily_rate,
+			t2.Title::TEXT,
+			t2.Category_id,
+			COALESCE(t3.name::TEXT, t5.name_of_company::TEXT) AS Name,
+			COALESCE(t3.surname::TEXT, t5.ind_num_taxp::TEXT) AS Surname_or_ind_num,
+			t2.Owner_id,
+			t4.Rating,
+			t4.Avatar_path
 
-	if location == "" {
-		request, err = rep.Query(
-			ctx,
-			`SELECT * FROM sort_product_list($1, $2, $3, $4, $5, $6, $7);`,
+		FROM
+			ads.ads t2
+		LEFT JOIN
+			ads.ad_photos t1 ON t2.id = t1.ad_id
+			AND t2.status = true
+		LEFT JOIN
+			users.individual_user t3 ON t3.user_id = t2.owner_id
+		LEFT JOIN
+			users.company_user t5 ON t5.user_id = t2.owner_id
+		INNER JOIN
+			users.users t4 ON t2.owner_id = t4.id
 
-			category,
-			lowNum,
-			higNum,
-			lowDate,
-			higDate,
-			nil,
-			rating,
-		) //категория передается как массив
-	} else {
-		request, err = rep.Query(
-			ctx,
-			`SELECT * FROM sort_product_list($1, $2, $3, $4, $5, $6, $7);`,
+		WHERE
+			(cardinality($1::INT[]) = 0 OR t2.category_id = ANY($1::INT[]))
+		-- сортировка по категориям
+		
+			AND $2 <= t2.Daily_rate AND t2.Daily_rate <= $3
+		-- сортировка по цене
 
-			category,
-			lowNum,
-			higNum,
-			lowDate,
-			higDate,
-			location,
-			rating,
-		) //категория передается как массив
-	}
+			AND EXISTS (
+		WITH booking_array AS (
+			SELECT 
+				array_agg(bookings.starts_at) AS starts_at_list,
+				array_agg(bookings.ends_at) AS ends_at_list,
+				array_agg(bookings.id) AS bookings_id_list,
+				bookings.ads_id AS ads_id_list
+			FROM 
+				orders.bookings AS bookings
+			LEFT JOIN 
+				orders.orders AS orders 
+			ON 
+				bookings.ads_id = t2.id AND orders.booking_id = bookings.id
+			GROUP BY 
+				bookings.ads_id
+		)
+		SELECT 
+			CASE 
+				WHEN booking_array.ads_id_list IS NULL -- Проверка, если записей нет
+					THEN TRUE
+					WHEN ($4 >= ALL(booking_array.starts_at_list) 
+					AND $5 >= ALL(booking_array.ends_at_list))
+			OR
+			($4 <= ALL(booking_array.starts_at_list) 
+					AND $5 <= ALL(booking_array.ends_at_list))
+				THEN TRUE 
+				ELSE FALSE 
+			END AS date_flag
+		FROM booking_array
+			)
+		-- сортировка по дате
 
-	if err != nil {
-		err = fmt.Errorf("failed to exec data: %w", err)
+		AND ST_Distance(
+					ST_SetSRID(ST_MakePoint($6::float8, $7::float8), 4326)::geography,
+					ST_SetSRID(ST_MakePoint(t2.Position[0], t2.Position[1]), 4326)::geography
+				) < $8
+		-- сортировка по радиусу
+		
+		AND COALESCE(t4.rating = $9, TRUE)
+		-- сортировка по рейтингу
+		ORDER BY
+			t2.Id;
+		`,
 
-		return
-	}
+		category,
+		lowNum,
+		higNum,
+		lowDate,
+		higDate,
+		position[0],
+		position[1],
+		distance,
+		rating,
+	)
+	errorr(err)
 
 	for request.Next() {
 		p := Product{}
 		err := request.Scan(
-			&p.File_path,
-			&p.Hourly_rate,
+			&p.Id,
+			&p.Ads_path,
+			&p.Daily_rate,
 			&p.Title,
 			&p.Category_id,
 			&p.Name,
-			&p.Id,
+			&p.Surname_or_ind_num,
 			&p.Owner_id,
-			&p.Ads_rating,
+			&p.Rating,
+			&p.Avatar_path,
 		)
 		if err != nil {
 			fmt.Println(err)
@@ -405,6 +583,194 @@ func (repo *MyRepository) SortProductListAllSQL(ctx context.Context, rw http.Res
 		}
 
 		products = append(products, p)
+	}
+
+	for i := 0; i < len(products); i++ { //пока что у нас три объявления
+		if products[i].Ads_path != nil {
+			products[i].Ads_photo = ServeSpecificMediaBase64(rw, r, ConvertToString(products[i].Ads_path))
+		}
+		products[i].Ads_path = nil
+
+		if products[i].Avatar_path != nil {
+			products[i].Avatar_photo = ServeSpecificMediaBase64(rw, r, ConvertToString(products[i].Avatar_path))
+		}
+		products[i].Avatar_path = nil
+	}
+
+	type Response struct {
+		Status  string    `json:"status"`
+		Data    []Product `json:"data,omitempty"`
+		Message string    `json:"message"`
+	}
+
+	if err == nil && request != nil && len(products) != 0 {
+		response := Response{
+			Status:  "success",
+			Data:    products,
+			Message: "Показано",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+
+		return
+	}
+
+	response := Response{
+		Status:  "fatal",
+		Message: "Не показано",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+
+	return err
+}
+
+func (repo *MyRepository) SortProductListHourlyRateSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, r *http.Request, category []int, lowNum, higNum int, lowDate, higDate time.Time, position []float64, distance, rating int) (err error) {
+	type Product struct {
+		Id *int
+
+		Ads_path  *string
+		Ads_photo string
+
+		Hourly_rate        *int
+		Title              *string
+		Category_id        *int
+		Name               *string
+		Surname_or_ind_num *string
+		Owner_id           *int
+		Rating             *float64
+
+		Avatar_path  *string
+		Avatar_photo string
+	}
+	products := []Product{}
+
+	errorr(err)
+
+	request, err := rep.Query(
+		ctx,
+		`
+		SELECT DISTINCT ON (t2.Id)
+			t2.Id,
+			t1.File_path::TEXT,
+			t2.Hourly_rate,
+			t2.Title::TEXT,
+			t2.Category_id,
+			COALESCE(t3.name::TEXT, t5.name_of_company::TEXT) AS Name,
+			COALESCE(t3.surname::TEXT, t5.ind_num_taxp::TEXT) AS Surname_or_ind_num,
+			t2.Owner_id,
+			t4.Rating,
+			t4.Avatar_path
+
+		FROM
+			ads.ads t2
+		LEFT JOIN
+			ads.ad_photos t1 ON t2.id = t1.ad_id
+			AND t2.status = true
+		LEFT JOIN
+			users.individual_user t3 ON t3.user_id = t2.owner_id
+		LEFT JOIN
+			users.company_user t5 ON t5.user_id = t2.owner_id
+		INNER JOIN
+			users.users t4 ON t2.owner_id = t4.id
+
+		WHERE
+			(cardinality($1::INT[]) = 0 OR t2.category_id = ANY($1::INT[]))
+		-- сортировка по категориям
+		
+			AND $2 <= t2.Hourly_rate AND t2.Hourly_rate <= $3
+		-- сортировка по цене
+
+			AND EXISTS (
+		WITH booking_array AS (
+			SELECT 
+				array_agg(bookings.starts_at) AS starts_at_list,
+				array_agg(bookings.ends_at) AS ends_at_list,
+				array_agg(bookings.id) AS bookings_id_list,
+				bookings.ads_id AS ads_id_list
+			FROM 
+				orders.bookings AS bookings
+			LEFT JOIN 
+				orders.orders AS orders 
+			ON 
+				bookings.ads_id = t2.id AND orders.booking_id = bookings.id
+			GROUP BY 
+				bookings.ads_id
+		)
+		SELECT 
+			CASE 
+				WHEN booking_array.ads_id_list IS NULL -- Проверка, если записей нет
+					THEN TRUE
+					WHEN ($4 >= ALL(booking_array.starts_at_list) 
+					AND $5 >= ALL(booking_array.ends_at_list))
+			OR
+			($4 <= ALL(booking_array.starts_at_list) 
+					AND $5 <= ALL(booking_array.ends_at_list))
+				THEN TRUE 
+				ELSE FALSE 
+			END AS date_flag
+		FROM booking_array
+			)
+		-- сортировка по дате
+
+		AND ST_Distance(
+					ST_SetSRID(ST_MakePoint($6::float8, $7::float8), 4326)::geography,
+					ST_SetSRID(ST_MakePoint(t2.Position[0], t2.Position[1]), 4326)::geography
+				) < $8
+		-- сортировка по радиусу
+		
+		AND COALESCE(t4.rating = $9, TRUE)
+		-- сортировка по рейтингу
+		ORDER BY
+			t2.Id;
+		`,
+
+		category,
+		lowNum,
+		higNum,
+		lowDate,
+		higDate,
+		position[0],
+		position[1],
+		distance,
+		rating,
+	)
+	errorr(err)
+
+	for request.Next() {
+		p := Product{}
+		err := request.Scan(
+			&p.Id,
+			&p.Ads_path,
+			&p.Hourly_rate,
+			&p.Title,
+			&p.Category_id,
+			&p.Name,
+			&p.Surname_or_ind_num,
+			&p.Owner_id,
+			&p.Rating,
+			&p.Avatar_path,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		products = append(products, p)
+	}
+
+	for i := 0; i < len(products); i++ { //пока что у нас три объявления
+		if products[i].Ads_path != nil {
+			products[i].Ads_photo = ServeSpecificMediaBase64(rw, r, ConvertToString(products[i].Ads_path))
+		}
+		products[i].Ads_path = nil
+
+		if products[i].Avatar_path != nil {
+			products[i].Avatar_photo = ServeSpecificMediaBase64(rw, r, ConvertToString(products[i].Avatar_path))
+		}
+		products[i].Avatar_path = nil
 	}
 
 	type Response struct {
@@ -449,7 +815,8 @@ func (repo *MyRepository) SignupAdsSQL(
 	category_id int,
 	location string,
 	updated_at time.Time,
-	images map[string]string,
+	images []string,
+	pwd_mass []string,
 	pwd string) (err error) {
 	request, err := rep.Query(ctx, `
 			WITH i AS (
@@ -498,11 +865,10 @@ func (repo *MyRepository) SignupAdsSQL(
 	}
 
 	if err != nil || ad_id <= 0 {
-		flag, file_err := DeleteFileMass(rw, pwd, images)
+		flag, file_err := DeleteImageMass(rw, pwd, images)
 		if flag {
 			response := Response{
 				Status:  "fatal",
-				Data:    0,
 				Message: "Проблемы с удалением фото: " + file_err.Error(),
 			}
 
@@ -514,11 +880,10 @@ func (repo *MyRepository) SignupAdsSQL(
 
 		response := Response{
 			Status:  "fatal",
-			Data:    0,
 			Message: "Объявление не зарегистирровано",
 		}
 
-		rw.WriteHeader(http.StatusOK)
+		// rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(response)
 
 		return err
@@ -536,39 +901,50 @@ func (repo *MyRepository) SignupAdsSQL(
 	return err
 }
 
-func (repo *MyRepository) UpdAdsSQL(
+func (repo *MyRepository) EditAdsListSQL(
 	ctx context.Context,
 	rw http.ResponseWriter,
 	rep *pgxpool.Pool,
-	title,
-	description string,
-	hourly_rate,
-	daily_rate,
-	owner_id,
-	category_id int,
-	location,
-	photoPwd string,
-	ad_id int,
-	updated_at time.Time,
-	pwd string,
-	images map[string]string,
+	ad_id,
+	owner_id int,
 ) (err error) {
 	request, err := rep.Query(ctx,
-		`SELECT title, description, hourly_rate, daily_rate, category_id, location FROM Ads.ads WHERE id = $1;`,
+		`
+		WITH i AS (
+			SELECT id, title, description, hourly_rate, daily_rate, category_id, location, position
+			FROM Ads.ads
+			WHERE id = $1 AND owner_id = $2
+		),
+		j AS (
+			SELECT ad_id, file_path, uploaded_at
+			FROM ads.ad_photos
+			WHERE ad_id IN (SELECT id FROM i)-- Используем подзапрос, чтобы получить id ads
+		)
+		SELECT i.title, i.description, i.hourly_rate, i.daily_rate, i.category_id, i.location, i.position, j.ad_id, j.file_path, j.uploaded_at
+		FROM i
+		LEFT JOIN j ON j.ad_id = i.id;
+		`,
 
 		ad_id,
+		owner_id,
 	)
 	errorr(err)
 
 	type Ads struct {
-		Id          int    `json:"id"`
-		Title       string `json:"Title"`
-		Description string `json:"Description"`
-		Hourly_rate int    `json:"Hourly_rate"`
-		Daily_rate  int    `json:"Daily_rate"`
-		Category_id int    `json:"Category_id"`
-		Location    string `json:"Location"`
+		Images      []string     `json:"Images"`
+		Title       string       `json:"Title"`
+		Description string       `json:"Description"`
+		Hourly_rate int          `json:"Hourly_rate"`
+		Daily_rate  int          `json:"Daily_rate"`
+		Category_id int          `json:"Category_id"`
+		Location    string       `json:"Location"`
+		Point       pgtype.Point `json:"Point"`
+
+		Ads_id      int       `json:"Ads_id"`
+		File_path   []string  `json:"File_path"`
+		Uploaded_at time.Time `json:"Uploaded_at"`
 	}
+
 	mass := []Ads{}
 	for request.Next() {
 		p := Ads{}
@@ -579,6 +955,11 @@ func (repo *MyRepository) UpdAdsSQL(
 			&p.Daily_rate,
 			&p.Category_id,
 			&p.Location,
+			&p.Point,
+
+			&p.Ads_id,
+			&p.File_path,
+			&p.Uploaded_at,
 		)
 		if err != nil {
 			fmt.Println(err)
@@ -588,61 +969,78 @@ func (repo *MyRepository) UpdAdsSQL(
 		mass = append(mass, p)
 	}
 
-	if title == "" {
-		title = mass[0].Title
-	}
-	if description == "" {
-		description = mass[0].Description
-	}
-	if hourly_rate == 0 {
-		hourly_rate = mass[0].Hourly_rate
-	}
-	if daily_rate == 0 {
-		daily_rate = mass[0].Daily_rate
-	}
-	if category_id == 0 {
-		category_id = mass[0].Category_id
-	}
-	if location == "" {
-		location = mass[0].Location
+	type Response struct {
+		Status  string `json:"status"`
+		Data    Ads    `json:"data,omitempty"`
+		Message string `json:"message"`
 	}
 
-	fmt.Println(mass[0])
+	for i := range len(mass[0].File_path) {
+		image, err := DownloadFile(mass[0].File_path[i])
+		if err != nil {
+			rw.WriteHeader(http.StatusOK)
+			json.NewEncoder(rw).Encode(Response{
+				Status:  "fatal",
+				Message: "Фото не найденно",
+			})
+			return err
+		}
 
-	if len(photoPwd) == 0 {
-		request, err := rep.Query(ctx,
-			`
-			UPDATE Ads.ads
-				SET title = $1,
-				description = $2,
-				hourly_rate = $3,
-				daily_rate = $4,
-				category_id = $5,
-				location = $6,
-				updated_at = NOW()
-			WHERE id = $7 AND owner_id = $8
-			RETURNING id;
-		`,
-			title,
-			description,
-			hourly_rate,
-			daily_rate,
-			category_id,
-			location,
+		mass[0].Images = append(mass[0].Images, image)
+	}
 
-			ad_id,
-			owner_id,
+	if err != nil && len(mass) == 0 {
+		response := Response{
+			Status:  "fatal",
+			Message: "Объявление не изменено",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	response := Response{
+		Status: "success",
+		Data: Ads{
+			Images:      mass[0].Images,
+			Title:       mass[0].Title,
+			Description: mass[0].Description,
+			Hourly_rate: mass[0].Hourly_rate,
+			Daily_rate:  mass[0].Daily_rate,
+			Category_id: mass[0].Category_id,
+			Location:    mass[0].Location,
+			Point:       mass[0].Point,
+			Ads_id:      mass[0].Ads_id,
+			Uploaded_at: mass[0].Uploaded_at,
+		},
+		Message: "Объявление показано",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+	return err
+}
+
+func (repo *MyRepository) UpdAdsAddImgSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, file_path string, ad_id, owner_id int) (err error) {
+	request, err := rep.Query(ctx,
+		`
+			INSERT INTO ads.ad_photos (ad_id, file_path)
+			VALUES ($1, $2)
+			RETURNING ad_id;
+			`,
+		ad_id,
+		file_path,
+	)
+
+	var req_ad_id int
+	for request.Next() {
+		err := request.Scan(
+			&req_ad_id,
 		)
-
-		var ad_id int
-		for request.Next() {
-			err := request.Scan(
-				&ad_id,
-			)
-			if err != nil {
-				fmt.Println(err)
-				continue
-			}
+		if err != nil {
+			fmt.Println(err)
+			continue
 		}
 
 		type Response struct {
@@ -651,119 +1049,463 @@ func (repo *MyRepository) UpdAdsSQL(
 			Message string `json:"message"`
 		}
 
-		if err != nil {
+		if err != nil && req_ad_id == 0 {
 			response := Response{
-				Status:  "success",
-				Data:    0,
+				Status:  "fatal",
 				Message: "Объявление не изменено",
 			}
 
-			rw.WriteHeader(http.StatusOK)
-			json.NewEncoder(rw).Encode(response)
-			return err
-		} else {
-			response := Response{
-				Status:  "success",
-				Data:    ad_id,
-				Message: "Объявление показано",
-			}
-
-			rw.WriteHeader(http.StatusOK)
-			json.NewEncoder(rw).Encode(response)
-			return err
-		}
-	} else {
-		request, err_ads := rep.Query(ctx,
-			`
-				UPDATE Ads.ads
-					SET title = $1,
-					description = $2,
-					hourly_rate = $3,
-					daily_rate = $4,
-					category_id = $5,
-					location = $6,
-					updated_at = NOW()
-				WHERE id = $7 AND owner_id = $8
-				RETURNING id;
-			`,
-			title,
-			description,
-			hourly_rate,
-			daily_rate,
-			category_id,
-			location,
-
-			ad_id,
-			owner_id,
-		)
-
-		var ad_id int
-		for request.Next() {
-			err := request.Scan(
-				&ad_id,
-			)
-			if err != nil {
-				fmt.Println(err)
-				continue
-			}
-		}
-
-		type Response struct {
-			Status  string `json:"status"`
-			Data    int    `json:"data,omitempty"`
-			Message string `json:"message"`
-		}
-
-		if err != nil {
-			return err
-		}
-
-		_, err = rep.Exec(
-			ctx, "INSERT INTO Ads.Ad_photos (ad_id, file_path, removed_at) VALUES($1, $2, $3);",
-			ad_id,
-			photoPwd,
-			time.Now())
-		if err != nil && err_ads != nil {
-			flag, file_err := DeleteFileMass(rw, pwd, images)
-			if flag {
-				response := Response{
-					Status:  "fatal",
-					Data:    0,
-					Message: "Проблемы с удалением фото: " + file_err.Error(),
-				}
-
-				rw.WriteHeader(http.StatusOK)
-				json.NewEncoder(rw).Encode(response)
-
-				return err
-			}
-
-			response := Response{
-				Status:  "fatal",
-				Data:    0,
-				Message: "Объявление показано",
-			}
-
-			rw.WriteHeader(http.StatusOK)
 			json.NewEncoder(rw).Encode(response)
 			return err
 		}
 
 		response := Response{
 			Status:  "success",
-			Data:    ad_id,
-			Message: "Объявление показано",
+			Data:    req_ad_id,
+			Message: "Фото изменено",
 		}
 
-		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(response)
-
+		return err
 	}
 
 	return
 }
 
-func (repo *MyRepository) DelAdsSQL(ctx context.Context, ads_id int, owner_id int, rw http.ResponseWriter, rep *pgxpool.Pool) (err error) {
+func (repo *MyRepository) UpdAdsDelImgSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, img_id int) (err error) {
+	request, err := rep.Query(ctx,
+		`
+			UPDATE Ads.ad_photos
+				SET status = false,
+				removed_at = NOW()
+			WHERE id = $2
+			RETURNING id;
+			`,
+		img_id,
+	)
+
+	var req_ad_id int
+	for request.Next() {
+		err := request.Scan(
+			&req_ad_id,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		type Response struct {
+			Status  string `json:"status"`
+			Data    int    `json:"data,omitempty"`
+			Message string `json:"message"`
+		}
+
+		if err != nil {
+			response := Response{
+				Status:  "fatal",
+				Message: "Объявление не изменено",
+			}
+
+			json.NewEncoder(rw).Encode(response)
+			return err
+		}
+
+		response := Response{
+			Status:  "success",
+			Data:    req_ad_id,
+			Message: "Объявление показано",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	return
+}
+
+func (repo *MyRepository) UpdAdsTitleSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, title string, ad_id, owner_id int) (err error) {
+	request, err := rep.Query(ctx,
+		`
+			UPDATE Ads.ads
+				SET title = $1,
+				updated_at = NOW()
+			WHERE id = $2 AND owner_id = $3
+			RETURNING title;
+			`,
+		title,
+
+		ad_id,
+		owner_id,
+	)
+
+	var req_title string
+	for request.Next() {
+		err := request.Scan(
+			&req_title,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		type Response struct {
+			Status  string `json:"status"`
+			Data    string `json:"data,omitempty"`
+			Message string `json:"message"`
+		}
+
+		if err != nil && ad_id == 0 {
+			response := Response{
+				Status:  "fatal",
+				Message: "Объявление не изменено",
+			}
+
+			json.NewEncoder(rw).Encode(response)
+			return err
+		}
+
+		response := Response{
+			Status:  "success",
+			Data:    req_title,
+			Message: "Объявление показано",
+		}
+
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	return
+}
+
+func (repo *MyRepository) UpdAdsDescriptionSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, description string, ad_id, owner_id int) (err error) {
+	request, err := rep.Query(ctx,
+		`
+		UPDATE Ads.ads
+			SET description = $1,
+			updated_at = NOW()
+		WHERE id = $2 AND owner_id = $3
+		RETURNING description;
+		`,
+		description,
+
+		ad_id,
+		owner_id,
+	)
+
+	var req_description string
+	for request.Next() {
+		err := request.Scan(
+			&req_description,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		type Response struct {
+			Status  string `json:"status"`
+			Data    string `json:"data,omitempty"`
+			Message string `json:"message"`
+		}
+
+		if err != nil && ad_id == 0 {
+			response := Response{
+				Status:  "fatal",
+				Message: "Объявление не изменено",
+			}
+
+			json.NewEncoder(rw).Encode(response)
+			return err
+		}
+
+		response := Response{
+			Status:  "success",
+			Data:    req_description,
+			Message: "Объявление показано",
+		}
+
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	return
+}
+
+func (repo *MyRepository) UpdAdsHourly_rateSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, hourly_rate, ad_id, owner_id int) (err error) {
+	request, err := rep.Query(ctx,
+		`
+		UPDATE Ads.ads
+			SET hourly_rate = $1,
+			updated_at = NOW()
+		WHERE id = $2 AND owner_id = $3
+		RETURNING id, title;
+		`,
+		hourly_rate,
+
+		ad_id,
+		owner_id,
+	)
+
+	var req_hourly_rate int
+	for request.Next() {
+		err := request.Scan(
+			&req_hourly_rate,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		type Response struct {
+			Status  string `json:"status"`
+			Data    int    `json:"data,omitempty"`
+			Message string `json:"message"`
+		}
+
+		if err != nil && ad_id == 0 {
+			response := Response{
+				Status:  "fatal",
+				Message: "Объявление не изменено",
+			}
+
+			json.NewEncoder(rw).Encode(response)
+			return err
+		}
+
+		response := Response{
+			Status:  "success",
+			Data:    req_hourly_rate,
+			Message: "Объявление показано",
+		}
+
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	return
+}
+
+func (repo *MyRepository) UpdAdsDaily_rateSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, daily_rate, ad_id, owner_id int) (err error) {
+	request, err := rep.Query(ctx,
+		`
+		UPDATE Ads.ads
+			SET daily_rate = $1,
+			updated_at = NOW()
+		WHERE id = $2 AND owner_id = $3
+		RETURNING daily_rate;
+		`,
+		daily_rate,
+
+		ad_id,
+		owner_id,
+	)
+
+	var req_daily_rate string
+	for request.Next() {
+		err := request.Scan(
+			&req_daily_rate,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		type Response struct {
+			Status  string `json:"status"`
+			Data    string `json:"data,omitempty"`
+			Message string `json:"message"`
+		}
+
+		if err != nil && ad_id == 0 {
+			response := Response{
+				Status:  "fatal",
+				Message: "Объявление не изменено",
+			}
+
+			json.NewEncoder(rw).Encode(response)
+			return err
+		}
+
+		response := Response{
+			Status:  "success",
+			Data:    req_daily_rate,
+			Message: "Объявление показано",
+		}
+
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	return
+}
+
+func (repo *MyRepository) UpdAdsCategory_idSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, category_id, ad_id, owner_id int) (err error) {
+	request, err := rep.Query(ctx,
+		`
+		UPDATE Ads.ads
+			SET category_id = $1,
+			updated_at = NOW()
+		WHERE id = $2 AND owner_id = $3
+		RETURNING id, title;
+		`,
+		category_id,
+
+		ad_id,
+		owner_id,
+	)
+
+	var req_category_id int
+	for request.Next() {
+		err := request.Scan(
+			&req_category_id,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		type Response struct {
+			Status  string `json:"status"`
+			Data    int    `json:"data,omitempty"`
+			Message string `json:"message"`
+		}
+
+		if err != nil && ad_id == 0 {
+			response := Response{
+				Status:  "fatal",
+				Message: "Объявление не изменено",
+			}
+
+			json.NewEncoder(rw).Encode(response)
+			return err
+		}
+
+		response := Response{
+			Status:  "success",
+			Data:    req_category_id,
+			Message: "Объявление показано",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	return
+}
+
+func (repo *MyRepository) UpdAdsLocationSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, location string, ad_id, owner_id int) (err error) {
+	request, err := rep.Query(ctx,
+		`
+			UPDATE Ads.ads
+				SET location = $1,
+				updated_at = NOW()
+			WHERE id = $2 AND owner_id = $3
+			RETURNING id, title;
+			`,
+		location,
+
+		ad_id,
+		owner_id,
+	)
+
+	var req_location string
+	for request.Next() {
+		err := request.Scan(
+			&req_location,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		type Response struct {
+			Status  string `json:"status"`
+			Data    string `json:"data,omitempty"`
+			Message string `json:"message"`
+		}
+
+		if err != nil && ad_id == 0 {
+			response := Response{
+				Status:  "fatal",
+				Message: "Объявление не изменено",
+			}
+
+			json.NewEncoder(rw).Encode(response)
+			return err
+		}
+
+		response := Response{
+			Status:  "success",
+			Data:    req_location,
+			Message: "Объявление показано",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	return
+}
+
+func (repo *MyRepository) UpdAdsPositionSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, position pgtype.Point, ad_id, owner_id int) (err error) {
+	request, err := rep.Query(ctx,
+		`
+			UPDATE Ads.ads
+				SET position = $1,
+				updated_at = NOW()
+			WHERE id = $2 AND owner_id = $3
+			RETURNING position;
+			`,
+		position,
+
+		ad_id,
+		owner_id,
+	)
+
+	var req_position pgtype.Point
+	for request.Next() {
+		err := request.Scan(
+			&req_position,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		type Response struct {
+			Status  string       `json:"status"`
+			Data    pgtype.Point `json:"data,omitempty"`
+			Message string       `json:"message"`
+		}
+
+		if err != nil && req_position.Status == pgtype.Null {
+			response := Response{
+				Status:  "fatal",
+				Message: "Позиция не изменена",
+			}
+
+			json.NewEncoder(rw).Encode(response)
+			return err
+		}
+
+		response := Response{
+			Status:  "success",
+			Data:    req_position,
+			Message: "Позиция изменена",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	return
+}
+
+func (repo *MyRepository) DelAdsSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, ads_id int, owner_id int) (err error) {
 	request, err := rep.Query(ctx,
 		`UPDATE Ads.ads
 		SET status = false
@@ -872,16 +1614,17 @@ func (repo *MyRepository) SearchForTechSQL(ctx context.Context, title string, rw
 	}
 }
 
-func (repo *MyRepository) SortProductListCategoriezSQL(ctx context.Context, rw http.ResponseWriter, category []int, rep *pgxpool.Pool) (err error) {
+func (repo *MyRepository) SortProductListCategoriezSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, category []int) (err error) {
 	type Product struct {
-		File_path   []string
-		Hourly_rate int
-		Title       string
-		Category_id int
-		Name        string
-		Id          int
-		Owner_id    int
-		Ads_rating  int
+		Id          *int
+		File_path   *string
+		Hourly_rate *int
+		Daily_rate  *int
+		Title       *string
+		Category_id *int
+		Name        interface{}
+		Owner_id    *int
+		Ads_rating  *int
 	}
 	products := []Product{}
 
@@ -895,25 +1638,31 @@ func (repo *MyRepository) SortProductListCategoriezSQL(ctx context.Context, rw h
 		ctx,
 		`
 		SELECT
-			t1.File_path,
-			t2.Hourly_rate,
-			t2.Title,
-			t2.Category_id,
-			t3.Name,
 			t2.Id,
-			t2.Owner_id,
-			t4.rating
+			MIN(t1.File_path) AS File_path,  -- или используйте другую агрегатную функцию
+			MIN(t2.Hourly_rate) AS Hourly_rate,
+			MIN(t2.Daily_rate) AS Daily_rate,
+			MIN(t2.Title) AS Title,
+			MIN(t2.Category_id) AS Category_id,
+			COALESCE(MIN(t3.Name), MIN(CAST(comp_user.ind_num_taxp AS text))) AS Name,
+			MIN(t2.Owner_id) AS Owner_id,
+			MIN(t4.rating) AS rating
 		FROM
-			ads.ad_photos t1
-		INNER JOIN
-			ads.ads t2 ON t2.id = t1.ad_id AND t2.status = true
-		INNER JOIN
+			ads.ads t2
+		LEFT JOIN
+			ads.ad_photos t1 ON t2.id = t1.ad_id
+		LEFT JOIN
 			users.individual_user t3 ON t3.user_id = t2.owner_id
+		LEFT JOIN
+			users.company_user comp_user ON comp_user.user_id = t2.owner_id
 		INNER JOIN
-			users.users t4 ON t3.user_id = t4.id
+			users.users t4 ON COALESCE(t3.user_id, comp_user.user_id) = t4.id
 		WHERE
-			(COALESCE($1, ARRAY[]::int[]) = ARRAY[]::int[]
-			OR t2.category_id = ANY($1::int[]));
+			t2.status = true
+			AND (COALESCE($1, ARRAY[]::int[]) = ARRAY[]::int[]
+			OR t2.category_id = ANY($1::int[]))
+		GROUP BY t2.id
+		ORDER BY t2.id;
 		`,
 
 		category,
@@ -928,12 +1677,13 @@ func (repo *MyRepository) SortProductListCategoriezSQL(ctx context.Context, rw h
 	for request.Next() {
 		p := Product{}
 		err := request.Scan(
+			&p.Id,
 			&p.File_path,
 			&p.Hourly_rate,
+			&p.Daily_rate,
 			&p.Title,
 			&p.Category_id,
 			&p.Name,
-			&p.Id,
 			&p.Owner_id,
 			&p.Ads_rating,
 		)
@@ -975,305 +1725,24 @@ func (repo *MyRepository) SortProductListCategoriezSQL(ctx context.Context, rw h
 	return err
 }
 
-func (repo *MyRepository) SigChatSQL(ctx context.Context, rw http.ResponseWriter, id_user int, id_ads int, rep *pgxpool.Pool) (err error) {
-	request, err := rep.Query(
-		ctx,
-		"SELECT ads.owner_id FROM ads.ads WHERE id = $1;",
-
-		id_ads,
-	)
-	if err != nil {
-		err = fmt.Errorf("failed to exec data: %w", err)
-		return
-	}
-
-	var id_buddy int
-	for request.Next() {
-		err := request.Scan(
-			&id_buddy,
-		)
-		if err != nil {
-			fmt.Println(err)
-
-			continue
-		}
-	}
-
-	request, err = rep.Query(
-		ctx,
-		"SELECT Chat.add_chat($1, $2, $3);",
-
-		id_user,
-		id_buddy,
-		id_ads,
-	)
-	if err != nil {
-		err = fmt.Errorf("failed to exec data: %w", err)
-		return
-	}
-
-	var chat_id int
-	for request.Next() {
-		err := request.Scan(
-			&chat_id,
-		)
-		if err != nil {
-			fmt.Println(err)
-
-			continue
-		}
-	}
-
-	type Response struct {
-		Status  string `json:"status"`
-		Data    int    `json:"data,omitempty"`
-		Message string `json:"message"`
-	}
-
-	if err == nil && request != nil || request != nil {
-		response := Response{
-			Status:  "success",
-			Data:    chat_id,
-			Message: "Показано",
-		}
-
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-
-		return
-	}
-
-	response := Response{
-		Status:  "fatal",
-		Message: "Не показано",
-	}
-
-	rw.WriteHeader(http.StatusOK)
-	json.NewEncoder(rw).Encode(response)
-
-	return err
-}
-
-func (repo *MyRepository) OpenChatSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, id_chat, user_id int) (err error) {
-	type Product_user struct {
-		Text string
-		Date time.Time
-	}
-	Products_user := []Product_user{}
-
-	type Product_buddy struct {
-		Text string
-		Date time.Time
-	}
-	Products_buddy := []Product_buddy{}
-
-	type Product struct {
-		Product_userr  []Product_user
-		Product_buddyy []Product_buddy
-	}
-
-	request_1, err := rep.Query( //это запрос на вывод наших сообщений
-		ctx,
-		"SELECT text, sent_at FROM chat.messages WHERE chat_id = $1 AND sender_id = $2;",
-
-		id_chat,
-		user_id,
-	)
-	errorr(err)
-
-	var Text string
-	var Date time.Time
-
-	for request_1.Next() {
-		err := request_1.Scan(
-			&Text,
-			&Date,
-		)
-		if err != nil {
-			fmt.Println(err)
-
-			continue
-		}
-		Products_user = append(Products_user, Product_user{Text: Text, Date: Date})
-	}
-
-	request_2, err := rep.Query( //это запрос на вывод сообщений нашего кента
-		ctx,
-		"SELECT text, sent_at FROM chat.messages WHERE chat_id = $1 AND sender_id != $2;",
-
-		id_chat,
-		user_id,
-	)
-	errorr(err)
-
-	for request_2.Next() {
-
-		err := request_2.Scan(
-			&Text,
-			&Date,
-		)
-		if err != nil {
-			fmt.Println(err)
-
-			continue
-		}
-		Products_buddy = append(Products_buddy, Product_buddy{Text: Text, Date: Date})
-	}
-
-	type Response struct {
-		Status  string  `json:"status"`
-		Data    Product `json:"data,omitempty"`
-		Message string  `json:"message"`
-	}
-
-	if err == nil && (Products_user != nil || Products_buddy != nil) {
-		response := Response{
-			Status: "success",
-			Data: Product{
-				Product_userr:  Products_user,
-				Product_buddyy: Products_buddy,
-			},
-			Message: "Показано",
-		}
-
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-
-		return
-	}
-
-	response := Response{
-		Status:  "fatal",
-		Message: "Не показано",
-	}
-
-	rw.WriteHeader(http.StatusOK)
-	json.NewEncoder(rw).Encode(response)
-
-	return err
-}
-
-func (repo *MyRepository) SendMessageSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, id_chat, id_user int, text, images string) (err error) {
-	request, err := rep.Query( //это запрос на вывод наших сообщений
-		ctx,
-		"INSERT INTO Chat.messages(chat_id, sender_id, text) VALUES ($1, $2, $3) RETURNING id;",
-
-		id_chat,
-		id_user,
-		text,
-	)
-	errorr(err)
-
-	var mess_id int
-
-	for request.Next() {
-		err := request.Scan(
-			&mess_id,
-		)
-		if err != nil {
-			fmt.Println(err)
-
-			continue
-		}
-	}
-
-	type Response struct {
-		Status  string `json:"status"`
-		Data    int    `json:"data,omitempty"`
-		Message string `json:"message"`
-	}
-
-	if err == nil && mess_id != 0 {
-		response := Response{
-			Status:  "success",
-			Data:    mess_id,
-			Message: "Показано",
-		}
-
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-
-		return
-	}
-
-	response := Response{
-		Status:  "fatal",
-		Message: "Не показано",
-	}
-
-	rw.WriteHeader(http.StatusOK)
-	json.NewEncoder(rw).Encode(response)
-
-	return err
-}
-
-func (repo *MyRepository) SigDisputInChatSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, id_chat int, id_user int) (err error) {
+func (repo *MyRepository) SigReviewSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id, order_id, rating int, comment string) (err error) {
 	request, err := rep.Query(
 		ctx,
 		`
-		UPDATE chat.chats SET have_disput = true 
-		WHERE ((id = $1 and user_1_id = $2) or (id = $1 and user_2_id = $2)) and have_disput = false
-		RETURNING id;`,
-
-		id_chat,
-		id_user,
-	)
-	errorr(err)
-
-	var chat_id int
-
-	for request.Next() {
-		err := request.Scan(
-			&chat_id,
+		WITH Ads AS(
+			SELECT ad_id, renter_id FROM orders.orders WHERE id = $1
 		)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-	}
+		INSERT INTO Ads.reviews (ad_id, reviewer_id, rating, comment, updated_at)
+		SELECT (SELECT ad_id FROM Ads), $2, $3, $4, NOW()
+		WHERE (SELECT renter_id FROM Ads) = $5
+		RETURNING id;
+		`,
 
-	type Response struct {
-		Status  string `json:"status"`
-		Data    int    `json:"data,omitempty"`
-		Message string `json:"message"`
-	}
-
-	if err == nil && chat_id != 0 {
-		response := Response{
-			Status:  "success",
-			Data:    chat_id,
-			Message: "Показано",
-		}
-
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-
-		return
-	}
-
-	response := Response{
-		Status:  "fatal",
-		Message: "Не показано",
-	}
-
-	rw.WriteHeader(http.StatusOK)
-	json.NewEncoder(rw).Encode(response)
-
-	return err
-}
-
-func (repo *MyRepository) SigReviewSQL(ctx context.Context, rw http.ResponseWriter, ads_id int, reviewer_id int, rating int, comment string, rep *pgxpool.Pool) (err error) {
-	request, err := rep.Query(
-		ctx,
-		"INSERT INTO Ads.reviews (ad_id, reviewer_id, rating, comment, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;",
-
-		ads_id,
-		reviewer_id,
+		order_id,
+		user_id,
 		rating,
 		comment,
-		time.Now(),
-		time.Now(),
-	)
+		user_id)
 
 	errorr(err)
 
@@ -1316,13 +1785,13 @@ func (repo *MyRepository) SigReviewSQL(ctx context.Context, rw http.ResponseWrit
 	}
 }
 
-func (repo *MyRepository) UpdReviewSQL(ctx context.Context, rw http.ResponseWriter, reviewer_id int, review_id int, rating int, comment string, rep *pgxpool.Pool) (err error) {
+func (repo *MyRepository) UpdReviewSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, reviewer_id, review_id, rating int, comment string) (err error) {
 	request, err := rep.Query(
 		ctx,
 		`
-			UPDATE ads.reviews 
-			SET rating = $1, comment = $2, updated_at = NOW() 
-			WHERE reviewer_id = $3 AND id = $4 RETURNING reviews.id;
+		UPDATE ads.reviews 
+		SET rating = $1, comment = $2, updated_at = NOW() 
+		WHERE reviewer_id = $3 AND id = $4 RETURNING reviews.id;
 		`,
 
 		rating,
@@ -1768,7 +2237,7 @@ func (repo *MyRepository) MediatorFinishJobInChatSQL(ctx context.Context, rw htt
 	return err
 }
 
-func (repo *MyRepository) SigFavAdsSQL(ctx context.Context, user_id int, ads_id int, rep *pgxpool.Pool, rw http.ResponseWriter) (err error) {
+func (repo *MyRepository) SigFavAdsSQL(ctx context.Context, rep *pgxpool.Pool, rw http.ResponseWriter, user_id int, ads_id int) (err error) {
 	request, err := rep.Query(
 		ctx,
 		"INSERT INTO Ads.favorite_ads(user_id, ad_id) VALUES ($1, $2) RETURNING ad_id;",
@@ -1818,7 +2287,7 @@ func (repo *MyRepository) SigFavAdsSQL(ctx context.Context, user_id int, ads_id 
 	return
 }
 
-func (repo *MyRepository) DelFavAdsSQL(ctx context.Context, user_id int, ads_id int, rep *pgxpool.Pool, rw http.ResponseWriter) (err error) {
+func (repo *MyRepository) DelFavAdsSQL(ctx context.Context, rep *pgxpool.Pool, rw http.ResponseWriter, user_id, ads_id int) (err error) {
 	request, err := rep.Query(
 		ctx,
 		"DELETE FROM Ads.favorite_ads WHERE user_id = $1 AND ad_id = $2 RETURNING ad_id;",
@@ -1974,80 +2443,140 @@ func (repo *MyRepository) GroupAdsByDailyRateSQL(ctx context.Context, rw http.Re
 	}
 }
 
-func (repo *MyRepository) GroupFavByRecentSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool) (err error) {
+func (repo *MyRepository) GroupFavByRecentSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, r *http.Request, user_id int) (err error) {
 	type Product struct {
-		User_id int
-		Ad_id   int
-		Reg_at  time.Time
+		Ads_path    string //это фотки объявления
+		Avatar_path string //это аватарка юзера
 
-		Ad_photo_id int
-		File_path   []string
-		Title       string
-		Hourly_rate float32
-		Description string
+		Ads_photo string
+		Avatar    string
+
+		Title         string
+		Hourly_rate   int
+		Description   string
+		Duration      string
+		Created_at    time.Time
+		Favorite_flag bool
+		User_name     string
+		Rating        float64
+		Review_count  int
+
+		Ads_id      int
+		Owner_id    int
+		Category_id int
 	}
-	products := []Product{}
 
+	var Duration_mass []string
+	var Favorite_flag_mass []bool
+	var Review_count_mass []int
+
+	products := []Product{}
 	request, err := rep.Query(
 		ctx,
-		"SELECT * FROM Ads.favorite_ads GROUP BY reg_at, user_id, ad_id ORDER BY reg_at desc;",
-	)
+		`
+		WITH duration AS (
+			SELECT
+				ARRAY_AGG(ads.id) AS ad_ids, -- Собираем все id в массив
+				ARRAY_AGG(ARRAY[bookings.starts_at, bookings.ends_at]) AS date_range -- Собираем массив пар дат
+			FROM ads.ads
+			LEFT JOIN orders.bookings 
+				ON bookings.ads_id = ads.id
+			LEFT JOIN orders.orders
+				ON orders.booking_id = bookings.id
+			INNER JOIN ads.favorite_ads 
+				ON ads.id = favorite_ads.ad_id AND favorite_ads.user_id = $1
+		)
+		SELECT
+			COALESCE(t1.File_path::TEXT, '/root/'),
+			t2.Title::TEXT,
+			t2.Hourly_rate,
+			t2.Description::TEXT,
+			Duration(
+				(SELECT d.date_range::date[] FROM duration d WHERE t2.id = ANY(d.ad_ids))
+			) AS duration_result, -- Функция принимает массив
+			t2.Created_at,
+			Favorite_flag($1, (SELECT ad_ids FROM duration)::INT[]),
+			t4.Avatar_path::TEXT as User_avatar,
+			COALESCE(t3.Name::TEXT, t5.name_of_company::TEXT) as User_name,
+			t4.Rating,
+			Review_count((SELECT ad_ids FROM duration)::INT[]),
+			t2.Id as Ads_id,
+			t2.Owner_id,
+			t2.Category_id
+		FROM
+			ads.ads t2
+		LEFT JOIN
+			ads.ad_photos t1
+			ON t2.id = t1.ad_id  -- Соединение на уровне объявления
+		LEFT JOIN
+			users.individual_user t3
+			ON t3.user_id = t2.owner_id
+		LEFT JOIN
+			users.company_user t5
+			ON t5.user_id = t2.owner_id
+		LEFT JOIN
+			users.users t4
+			ON t4.id = t2.owner_id
+		WHERE
+			t2.status = true
+			AND t2.id = ANY((SELECT ad_ids FROM duration)::INT[])
+		GROUP BY 
+			COALESCE(t1.File_path::TEXT, '/root/'),
+			t2.Title::TEXT,
+			t2.Hourly_rate,
+			t2.Description::TEXT,
+			duration_result, -- Функция принимает массив
+			t2.Created_at,
+			Favorite_flag($1, (SELECT ad_ids FROM duration)::INT[]),
+			User_avatar,
+			User_name,
+			t4.Rating,
+			Review_count((SELECT ad_ids FROM duration)::INT[]),
+			Ads_id,
+			t2.Owner_id,
+			t2.Category_id
+		ORDER BY t2.Created_at desc
+		`,
+
+		29)
 	errorr(err)
 
 	for request.Next() {
 		p := Product{}
 		err := request.Scan(
-			&p.User_id,
-			&p.Ad_id,
-			&p.Reg_at,
+			&p.Ads_path, //кладем сюда множество, длиною в три ӕлемента, с путями фоток
+			&p.Title,
+			&p.Hourly_rate,
+			&p.Description,
+			&Duration_mass,
+			&p.Created_at,
+			&Favorite_flag_mass,
+			&p.Avatar_path,
+			&p.User_name,
+			&p.Rating,
+			&Review_count_mass,
+
+			&p.Ads_id,
+			&p.Owner_id,
+			&p.Category_id,
 		)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Errorf("Error", err)
 			continue
 		}
-
-		// Обрабатываем ad_photos
-		request_ad_photo, err_ad_photo := rep.Query(
-			ctx,
-			"SELECT id, file_path FROM Ads.ad_photos WHERE ad_id = $1;",
-			p.Ad_id,
-		)
-		errorr(err_ad_photo)
-
-		// Цикл для обработки всех строк
-		for request_ad_photo.Next() {
-			err = request_ad_photo.Scan(
-				&p.Ad_photo_id,
-				&p.File_path,
-			)
-			if err != nil {
-				fmt.Println(err)
-				continue
-			}
-		}
-
-		// Обрабатываем ads
-		request_ads, err_ads := rep.Query(
-			ctx,
-			"SELECT title, hourly_rate, description FROM Ads.ads WHERE id = $1;",
-			p.Ad_id,
-		)
-		errorr(err_ads)
-
-		// Цикл для обработки всех строк
-		for request_ads.Next() {
-			err = request_ads.Scan(
-				&p.Title,
-				&p.Hourly_rate,
-				&p.Description,
-			)
-			if err != nil {
-				fmt.Println(err)
-				continue
-			}
-		}
-
 		products = append(products, p)
+	}
+
+	for i := 0; i < len(products); i++ { //пока что у нас три объявления
+		// products[i].Duration = Duration_mass[i]
+		products[i].Favorite_flag = Favorite_flag_mass[i]
+		products[i].Review_count = Review_count_mass[i]
+
+		for j := 0; j < len(products[i].Ads_path); j++ {
+			products[i].Ads_photo = ServeSpecificMediaBase64(rw, r, products[i].Ads_path)
+		}
+
+		products[i].Avatar = ServeSpecificMediaBase64(rw, r, products[i].Avatar_path)
 	}
 
 	type Response struct {
@@ -2056,57 +2585,162 @@ func (repo *MyRepository) GroupFavByRecentSQL(ctx context.Context, rw http.Respo
 		Message string    `json:"message"`
 	}
 
-	if err != nil {
+	if err != nil || len(products) == 0 {
 		response := Response{
 			Status:  "fatal",
-			Message: "Не сгруппировано",
+			Message: "Не показано",
 		}
 
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(response)
-		return err
 
+		return err
 	}
+
 	response := Response{
 		Status:  "success",
 		Data:    products,
-		Message: "Сгруппировано",
+		Message: "Показано",
 	}
 
 	rw.WriteHeader(http.StatusOK)
 	json.NewEncoder(rw).Encode(response)
-	return err
+	return
 }
 
-func (repo *MyRepository) GroupFavByCheaperSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool) (err error) {
+func (repo *MyRepository) GroupFavByCheaperSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, r *http.Request, user_id int) (err error) {
 	type Product struct {
-		Ads_id      int
-		Hourly_rate int
-		User_id     int
-	}
-	products := []Product{}
+		Ads_path    string //это фотки объявления
+		Avatar_path string //это аватарка юзера
 
+		Ads_photo string
+		Avatar    string
+
+		Title         string
+		Hourly_rate   int
+		Description   string
+		Duration      string
+		Created_at    time.Time
+		Favorite_flag bool
+		User_name     string
+		Rating        float64
+		Review_count  int
+
+		Ads_id      int
+		Owner_id    int
+		Category_id int
+	}
+
+	var Duration_mass []string
+	var Favorite_flag_mass []bool
+	var Review_count_mass []int
+
+	products := []Product{}
 	request, err := rep.Query(
 		ctx,
-		"WITH i AS (SELECT Ads.id AS ads_id, ads.hourly_rate, favorite_ads.user_id FROM Ads.ads, Ads.favorite_ads WHERE ads.id = favorite_ads.ad_id) SELECT * FROM i GROUP BY i.ads_id, i.hourly_rate, i.user_id ORDER BY i.hourly_rate ASC;",
-	)
-	if err != nil {
-		err = fmt.Errorf("failed to exec data: %w", err)
-		return
-	}
+		`
+		WITH duration AS (
+			SELECT
+				ARRAY_AGG(ads.id) AS ad_ids, -- Собираем все id в массив
+				ARRAY_AGG(ARRAY[bookings.starts_at, bookings.ends_at]) AS date_range -- Собираем массив пар дат
+			FROM ads.ads
+			LEFT JOIN orders.bookings 
+				ON bookings.ads_id = ads.id
+			LEFT JOIN orders.orders
+				ON orders.booking_id = bookings.id
+			INNER JOIN ads.favorite_ads 
+				ON ads.id = favorite_ads.ad_id AND favorite_ads.user_id = $1
+		)
+		SELECT
+			COALESCE(t1.File_path::TEXT, '/root/'),
+			t2.Title::TEXT,
+			t2.Hourly_rate,
+			t2.Description::TEXT,
+			Duration(
+				(SELECT d.date_range::date[] FROM duration d WHERE t2.id = ANY(d.ad_ids))
+			) AS duration_result, -- Функция принимает массив
+			t2.Created_at,
+			Favorite_flag($1, (SELECT ad_ids FROM duration)::INT[]),
+			t4.Avatar_path::TEXT as User_avatar,
+			COALESCE(t3.Name::TEXT, t5.name_of_company::TEXT) as User_name,
+			t4.Rating,
+			Review_count((SELECT ad_ids FROM duration)::INT[]),
+			t2.Id as Ads_id,
+			t2.Owner_id,
+			t2.Category_id
+		FROM
+			ads.ads t2
+		LEFT JOIN
+			ads.ad_photos t1
+			ON t2.id = t1.ad_id  -- Соединение на уровне объявления
+		LEFT JOIN
+			users.individual_user t3
+			ON t3.user_id = t2.owner_id
+		LEFT JOIN
+			users.company_user t5
+			ON t5.user_id = t2.owner_id
+		LEFT JOIN
+			users.users t4
+			ON t4.id = t2.owner_id
+		WHERE
+			t2.status = true
+			AND t2.id = ANY((SELECT ad_ids FROM duration)::INT[])
+		GROUP BY 
+			COALESCE(t1.File_path::TEXT, '/root/'),
+			t2.Title::TEXT,
+			t2.Hourly_rate,
+			t2.Description::TEXT,
+			duration_result, -- Функция принимает массив
+			t2.Created_at,
+			Favorite_flag($1, (SELECT ad_ids FROM duration)::INT[]),
+			User_avatar,
+			User_name,
+			t4.Rating,
+			Review_count((SELECT ad_ids FROM duration)::INT[]),
+			Ads_id,
+			t2.Owner_id,
+			t2.Category_id
+		ORDER BY t2.Hourly_rate ASC;
+		`,
+		29)
+	errorr(err)
 
 	for request.Next() {
 		p := Product{}
 		err := request.Scan(
-			&p.Ads_id,
+			&p.Ads_path, //кладем сюда множество, длиною в три ӕлемента, с путями фоток
+			&p.Title,
 			&p.Hourly_rate,
-			&p.User_id,
+			&p.Description,
+			&Duration_mass,
+			&p.Created_at,
+			&Favorite_flag_mass,
+			&p.Avatar_path,
+			&p.User_name,
+			&p.Rating,
+			&Review_count_mass,
+
+			&p.Ads_id,
+			&p.Owner_id,
+			&p.Category_id,
 		)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Errorf("Error", err)
 			continue
 		}
 		products = append(products, p)
+	}
+
+	for i := 0; i < len(products); i++ { //пока что у нас три объявления
+		// products[i].Duration = Duration_mass[i]
+		products[i].Favorite_flag = Favorite_flag_mass[i]
+		products[i].Review_count = Review_count_mass[i]
+
+		for j := 0; j < len(products[i].Ads_path); j++ {
+			products[i].Ads_photo = ServeSpecificMediaBase64(rw, r, products[i].Ads_path)
+		}
+
+		products[i].Avatar = ServeSpecificMediaBase64(rw, r, products[i].Avatar_path)
 	}
 
 	type Response struct {
@@ -2115,58 +2749,162 @@ func (repo *MyRepository) GroupFavByCheaperSQL(ctx context.Context, rw http.Resp
 		Message string    `json:"message"`
 	}
 
-	if err != nil {
+	if err != nil || len(products) == 0 {
 		response := Response{
 			Status:  "fatal",
-			Message: "Не сгруппировано",
+			Message: "Не показано",
 		}
 
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(response)
+
 		return err
-	} else {
-		fmt.Println(products)
-		response := Response{
-			Status:  "success",
-			Data:    products,
-			Message: "Сгруппировано",
-		}
-
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-		return
 	}
+
+	response := Response{
+		Status:  "success",
+		Data:    products,
+		Message: "Показано",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+	return
 }
 
-func (repo *MyRepository) GroupFavByDearlySQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool) (err error) {
+func (repo *MyRepository) GroupFavByDearlySQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, r *http.Request, user_id int) (err error) {
 	type Product struct {
-		Ads_id      int
-		Hourly_rate int
-		User_id     int
-	}
-	products := []Product{}
+		Ads_path    string //это фотки объявления
+		Avatar_path string //это аватарка юзера
 
+		Ads_photo string
+		Avatar    string
+
+		Title         string
+		Hourly_rate   int
+		Description   string
+		Duration      string
+		Created_at    time.Time
+		Favorite_flag bool
+		User_name     string
+		Rating        float64
+		Review_count  int
+
+		Ads_id      int
+		Owner_id    int
+		Category_id int
+	}
+
+	var Duration_mass []string
+	var Favorite_flag_mass []bool
+	var Review_count_mass []int
+
+	products := []Product{}
 	request, err := rep.Query(
 		ctx,
-		"WITH i AS (SELECT Ads.id AS ads_id, ads.hourly_rate, favorite_ads.user_id FROM Ads.ads, Ads.favorite_ads WHERE ads.id = favorite_ads.ad_id) SELECT * FROM i GROUP BY i.ads_id, i.hourly_rate, i.user_id ORDER BY i.hourly_rate DESC;",
-	)
-	if err != nil {
-		err = fmt.Errorf("failed to exec data: %w", err)
-		return
-	}
+		`
+		WITH duration AS (
+			SELECT
+				ARRAY_AGG(ads.id) AS ad_ids, -- Собираем все id в массив
+				ARRAY_AGG(ARRAY[bookings.starts_at, bookings.ends_at]) AS date_range -- Собираем массив пар дат
+			FROM ads.ads
+			LEFT JOIN orders.bookings 
+				ON bookings.ads_id = ads.id
+			LEFT JOIN orders.orders
+				ON orders.booking_id = bookings.id
+			INNER JOIN ads.favorite_ads 
+				ON ads.id = favorite_ads.ad_id AND favorite_ads.user_id = $1
+		)
+		SELECT
+			COALESCE(t1.File_path::TEXT, '/root/'),
+			t2.Title::TEXT,
+			t2.Hourly_rate,
+			t2.Description::TEXT,
+			Duration(
+				(SELECT d.date_range::date[] FROM duration d WHERE t2.id = ANY(d.ad_ids))
+			) AS duration_result, -- Функция принимает массив
+			t2.Created_at,
+			Favorite_flag($1, (SELECT ad_ids FROM duration)::INT[]),
+			t4.Avatar_path::TEXT as User_avatar,
+			COALESCE(t3.Name::TEXT, t5.name_of_company::TEXT) as User_name,
+			t4.Rating,
+			Review_count((SELECT ad_ids FROM duration)::INT[]),
+			t2.Id as Ads_id,
+			t2.Owner_id,
+			t2.Category_id
+		FROM
+			ads.ads t2
+		LEFT JOIN
+			ads.ad_photos t1
+			ON t2.id = t1.ad_id  -- Соединение на уровне объявления
+		LEFT JOIN
+			users.individual_user t3
+			ON t3.user_id = t2.owner_id
+		LEFT JOIN
+			users.company_user t5
+			ON t5.user_id = t2.owner_id
+		LEFT JOIN
+			users.users t4
+			ON t4.id = t2.owner_id
+		WHERE
+			t2.status = true
+			AND t2.id = ANY((SELECT ad_ids FROM duration)::INT[])
+		GROUP BY 
+			COALESCE(t1.File_path::TEXT, '/root/'),
+			t2.Title::TEXT,
+			t2.Hourly_rate,
+			t2.Description::TEXT,
+			duration_result, -- Функция принимает массив
+			t2.Created_at,
+			Favorite_flag($1, (SELECT ad_ids FROM duration)::INT[]),
+			User_avatar,
+			User_name,
+			t4.Rating,
+			Review_count((SELECT ad_ids FROM duration)::INT[]),
+			Ads_id,
+			t2.Owner_id,
+			t2.Category_id
+		ORDER BY t2.Hourly_rate DESC;
+		`,
+		29)
+	errorr(err)
 
 	for request.Next() {
 		p := Product{}
 		err := request.Scan(
-			&p.Ads_id,
+			&p.Ads_path, //кладем сюда множество, длиною в три ӕлемента, с путями фоток
+			&p.Title,
 			&p.Hourly_rate,
-			&p.User_id,
+			&p.Description,
+			&Duration_mass,
+			&p.Created_at,
+			&Favorite_flag_mass,
+			&p.Avatar_path,
+			&p.User_name,
+			&p.Rating,
+			&Review_count_mass,
+
+			&p.Ads_id,
+			&p.Owner_id,
+			&p.Category_id,
 		)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Errorf("Error", err)
 			continue
 		}
 		products = append(products, p)
+	}
+
+	for i := 0; i < len(products); i++ { //пока что у нас три объявления
+		// products[i].Duration = Duration_mass[i]
+		products[i].Favorite_flag = Favorite_flag_mass[i]
+		products[i].Review_count = Review_count_mass[i]
+
+		for j := 0; j < len(products[i].Ads_path); j++ {
+			products[i].Ads_photo = ServeSpecificMediaBase64(rw, r, products[i].Ads_path)
+		}
+
+		products[i].Avatar = ServeSpecificMediaBase64(rw, r, products[i].Avatar_path)
 	}
 
 	type Response struct {
@@ -2175,30 +2913,30 @@ func (repo *MyRepository) GroupFavByDearlySQL(ctx context.Context, rw http.Respo
 		Message string    `json:"message"`
 	}
 
-	if err != nil {
+	if err != nil || len(products) == 0 {
 		response := Response{
 			Status:  "fatal",
-			Message: "Не сгруппировано",
+			Message: "Не показано",
 		}
 
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(response)
+
 		return err
-	} else {
-		fmt.Println(products)
-		response := Response{
-			Status:  "success",
-			Data:    products,
-			Message: "Сгруппировано",
-		}
-
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-		return
 	}
+
+	response := Response{
+		Status:  "success",
+		Data:    products,
+		Message: "Показано",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+	return
 }
 
-func (repo *MyRepository) GroupAdsByRentedSQL(ctx context.Context, rw http.ResponseWriter, user_id int, rep *pgxpool.Pool) (err error) {
+func (repo *MyRepository) GroupAdsByRentedSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id int) (err error) {
 	type Product struct {
 		Id          int
 		Title       string
@@ -2219,10 +2957,7 @@ func (repo *MyRepository) GroupAdsByRentedSQL(ctx context.Context, rw http.Respo
 
 		user_id,
 	)
-	if err != nil {
-		err = fmt.Errorf("failed to exec data: %w", err)
-		return
-	}
+	errorr(err)
 
 	for request.Next() {
 		p := Product{}
@@ -2260,17 +2995,17 @@ func (repo *MyRepository) GroupAdsByRentedSQL(ctx context.Context, rw http.Respo
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(response)
 		return err
-	} else {
-		response := Response{
-			Status:  "success",
-			Data:    products,
-			Message: "Сгруппировано",
-		}
-
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-		return
 	}
+
+	response := Response{
+		Status:  "success",
+		Data:    products,
+		Message: "Сгруппировано",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+	return
 }
 
 func (repo *MyRepository) GroupAdsByArchivedSQL(ctx context.Context, rw http.ResponseWriter, user_id int, rep *pgxpool.Pool) (err error) {
@@ -2285,12 +3020,13 @@ func (repo *MyRepository) GroupAdsByArchivedSQL(ctx context.Context, rw http.Res
 		Location    string
 		Created_at  time.Time
 		Updated_at  time.Time
+		Bool_state  bool
 	}
 	products := []Product{}
 
 	request, err := rep.Query(
 		ctx,
-		"SELECT id, title, description, hourly_rate, daily_rate, owner_id, category_id, location, created_at, updated_at FROM Ads.ads WHERE status = false AND owner_id = $1;",
+		"SELECT id, title, description, hourly_rate, daily_rate, owner_id, category_id, location, created_at, updated_at, false FROM Ads.ads WHERE status = false AND owner_id = $1;",
 
 		user_id,
 	)
@@ -2312,6 +3048,7 @@ func (repo *MyRepository) GroupAdsByArchivedSQL(ctx context.Context, rw http.Res
 			&p.Location,
 			&p.Created_at,
 			&p.Updated_at,
+			&p.Bool_state,
 		)
 		if err != nil {
 			fmt.Println(err)

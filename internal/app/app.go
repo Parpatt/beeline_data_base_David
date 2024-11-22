@@ -8,6 +8,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/julienschmidt/httprouter"
+	"github.com/rs/zerolog"
 
 	"myproject/internal"
 	"myproject/internal/models"
@@ -30,7 +31,7 @@ func StartPage(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 	fmt.Fprintf(rw, "")
 }
 
-func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpool *pgxpool.Pool, rdb *redis.Client) {
+func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpool *pgxpool.Pool, rdb *redis.Client, logger zerolog.Logger) {
 	a := services.NewApp(Ctx, dbpool)
 
 	r.ServeFiles("/public/*filepath", http.Dir("public"))
@@ -39,17 +40,33 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 		a.SignupUserByEmailPOST(rw, r, rdb)
 	}) //пользователь укзывает почту(регистрация)
 
+	r.POST("/signupUserByPhone", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SignupUserByPhonePOST(rw, r, rdb)
+	}) //пользователь укзывает телефон(регистрация)
+
 	r.POST("/enterCodeFromEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.EnterCodeFromEmailPOST(rw, r, rdb)
-	}) //пользователь укзывает почту(регистрация)
+	}) //пользователь укзывает код почта
 
-	r.POST("/signupLegal", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.SignupLegalPOST(rw, r, rdb)
-	}) //передача данных Юридического лица (регистрация)
+	r.POST("/enterCodeFromPhone", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.EnterCodeFromPhonePOST(rw, r, rdb)
+	}) //пользователь укзывает код телефон
 
-	r.POST("/signupNatur", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.SignupNaturPOST(rw, r, rdb)
-	}) //передача данных Физического лица (регистрация)
+	r.POST("/signupLegalEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SignupLegalEmailPOST(rw, r, rdb)
+	}) //передача данных Юридического лица (регистрация) Email
+
+	r.POST("/signupLegalPhone", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SignupLegalPhonePOST(rw, r, rdb)
+	}) //передача данных Юридического лица (регистрация) Email
+
+	r.POST("/signupNaturEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SignupNaturEmailPOST(rw, r, rdb)
+	}) //передача данных Физического лица (регистрация) Email
+
+	r.POST("/signupNaturPhone", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SignupNaturPhonePOST(rw, r, rdb)
+	}) //передача данных Физического лица (регистрация) Email
 
 	r.POST("/editingLegalUserData", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.EditingLegalUserDataPOST(rw, r)
@@ -60,15 +77,23 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 	}) //изменение данных для физика
 
 	r.POST("/sendCodForEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.SendCodForEmail(rw, r, rdb)
+		a.SendCodForEmailPOST(rw, r, rdb)
 	}) //отправка сообщения на почту для подтверждения
 
 	r.POST("/enterCodFromEmail", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.EnterCodFromEmail(rw, r, rdb)
+		a.EnterCodFromEmailPOST(rw, r, rdb)
 	}) //отправка сообщения на почту для подтверждения
 
+	r.POST("/sendCodForPhoneNum", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SendCodForPhoneNumPOST(rw, r, rdb)
+	}) //отправка сообщения на телефон для подтверждения
+
+	r.POST("/enterCodFromPhoneNum", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.EnterCodFromPhoneNumPOST(rw, r, rdb)
+	}) //отправка сообщения на телефон для подтверждения
+
 	r.POST("/login", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.LoginPOST(rw, r)
+		a.LoginPOST(rw, r, logger)
 	}) //логин отправка
 
 	r.POST("/productList", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
@@ -79,13 +104,21 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 		a.PrintAdsPOST(rw, r)
 	}) //вывод продукта
 
-	r.POST("/sortProductListAll", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.SortProductListAllPOST(rw, r)
+	r.POST("/sortProductListDailyRate", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SortProductListDailyRatePOST(rw, r)
+	}) //вывод продукта с учётом сортировки всем категориям
+
+	r.POST("/sortProductListHourlyRate", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SortProductListHourlyRatePOST(rw, r)
 	}) //вывод продукта с учётом сортировки всем категориям
 
 	r.POST("/sigAds", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SignupAdsPOST(rw, r)
 	}) //размещение(добавление) объявления
+
+	r.POST("/editAdsList", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.EditAdsListPOST(rw, r)
+	}) //редактирование(изменение) объявления
 
 	r.POST("/updAds", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.UpdAdsPOST(rw, r)
@@ -111,6 +144,10 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 		a.SortProductListCategoriezPOST(rw, r)
 	}) //вывод продукта с учётом сортировки категории
 
+	r.POST("/chatButtonInAds", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.ChatButtonInAdsPOST(rw, r)
+	}) //кнопка "написать" в листе объявления
+
 	r.POST("/sigChat", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SigChatPOST(rw, r)
 	}) //начало переписки
@@ -119,13 +156,30 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 		a.OpenChatPOST(rw, r)
 	}) //открытие чата
 
+	r.POST("/sendMessageAndImage", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SendMessageAndImagePOST(rw, r)
+	}) //отправить сообщение и медиа
+
+	r.POST("/sendImage", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SendImagePOST(rw, r)
+	}) //отправить медиа
+
 	r.POST("/sendMessage", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SendMessagePOST(rw, r)
+	}) //отправить сообщение
+
+	r.POST("/sendMessageAndVideo", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SendMessageAndVideoPOST(rw, r)
+	}) //отправить сообщение и медиа
+
+	r.POST("/sendVideo", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SendVideoPOST(rw, r)
 	}) //отправить сообщение
 
 	r.POST("/sigDisputInChat", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SigDisputInChatPOST(rw, r)
 	}) //начать спор
+	//чат заканчивается тут
 
 	r.POST("/sigReview", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.SigReviewPOST(rw, r)
@@ -203,12 +257,28 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 		a.RegisterOrderPOST(rw, r)
 	}) //регистрация заказа
 
-	r.POST("/regBooking", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		a.RegBookingPOST(rw, r)
-	}) //переброинрование
+	r.POST("/regBookingHourly", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.RegBookingHourlyPOST(rw, r)
+	}) //броинрование
+
+	r.POST("/bidding", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.BiddingPOST(rw, r)
+	}) //пользователи торгуются
+
+	r.POST("/regBookingWithBidding", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.RegBookingWithBiddingPOST(rw, r)
+	}) //броинрование на основе торгов
 
 	r.POST("/rebookBooking", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.RebookBookingPOST(rw, r)
+	}) //переброинрование
+
+	r.POST("/complBooking", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.ComplBookingPOST(rw, r)
+	}) //бронирование прошло успешно и мы начисляем бабки юзеру
+
+	r.GET("/bookingList", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.BookingListGET(rw, r)
 	}) //переброинрование
 
 	r.GET("/groupOrdersByRented", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
@@ -235,6 +305,14 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 		a.EnterCodeForRecoveryPassWithEmailPOST(rw, r, rdb)
 	}) //восстановление пароля через почту(отправление на почту)
 
+	r.POST("/sendCodeForRecoveryPassWithPhoneNum", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.SendCodeForRecoveryPassWithPhoneNumPOST(rw, r, rdb)
+	}) //восстановление пароля через телефон
+
+	r.POST("/enterCodeForRecoveryPassWithPhoneNum", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.EnterCodeForRecoveryPassWithPhoneNumPOST(rw, r, rdb)
+	}) //восстановление пароля через телефон
+
 	r.POST("/autorizLoginEmailSend", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.AutorizLoginEmailSendPOST(rw, r, rdb)
 	}) //логин отправка
@@ -242,6 +320,22 @@ func (application *MyApp) Routes(r *httprouter.Router, Ctx context.Context, dbpo
 	r.POST("/autorizLoginEmailEnter", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		a.AutorizLoginEmailEnterPOST(rw, r, rdb)
 	}) //логин ввод
+
+	r.GET("/refreshToken", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.RefreshTokenGET(rw, r)
+	}) //рефреш токены
+
+	r.GET("/printChat", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.PrintChatGET(rw, r)
+	}) //вывод всех чатов
+
+	r.POST("/allUserAds", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.AllUserAdsPOST(rw, r)
+	}) //Кнопка 11 объявлений пользователя
+
+	r.POST("/allAdsOfThisUser", func(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		a.AllAdsOfThisUserPOST(rw, r)
+	}) //все объявления этого юзера
 }
 
 func PageMenuNavigation(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {

@@ -2,8 +2,6 @@ package jwt
 
 import (
 	"fmt"
-	"log"
-	"net/http"
 	"time"
 
 	"github.com/golang-jwt/jwt"
@@ -32,10 +30,11 @@ func GenerateJWT(name string, user_id int) (string, error) { //функция, �
 	return tokenString, nil
 }
 
-func IsAuthorized(rw http.ResponseWriter, tokenString string) (bool, int) { //функция, которая проверяет, корректный ли токен мы отправляем
-	// Парсинг и декодирование токена
+// Функция для проверки токена и извлечения полезной нагрузки
+func IsAuthorized(tokenString string) (bool, int) {
+	// Парсинг и верификация токена
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		// Проверяем алгоритм
+		// Проверка метода подписи токена
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -43,47 +42,23 @@ func IsAuthorized(rw http.ResponseWriter, tokenString string) (bool, int) { //ф
 	})
 
 	if err != nil {
-		log.Fatalf("Error parsing token: %v", err)
+		return false, 0 // Ошибка при парсинге или верификации токена
 	}
 
-	if err != nil {
-		if ve, ok := err.(*jwt.ValidationError); ok {
-			if ve.Errors&jwt.ValidationErrorMalformed != 0 {
-				fmt.Println("Это не токен")
-			} else if ve.Errors&jwt.ValidationErrorExpired != 0 {
-				fmt.Println("Токен истек")
-			} else if ve.Errors&jwt.ValidationErrorNotValidYet != 0 {
-				fmt.Println("Токен еще не действителен")
-			} else {
-				fmt.Println("Невалидный токен")
-			}
-			return false, 0
-		} else {
-			fmt.Println("Не удалось обработать токен")
-			return false, 0
-		}
-	} else if token.Valid {
-		fmt.Println("Токен валиден")
-		var user_id int
-		var flag bool
-		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-			// Здесь можно получить полезную нагрузку
-			fmt.Println("Claims:")
-			for key, us_id := range claims {
-				if key == "id" {
-					user_id = int(us_id.(float64))
-					flag = true
-				}
-			}
-		} else {
-			// user_id = 0
-			// flag = false
-			fmt.Println("Invalid token")
-		}
-		fmt.Println(flag, " ", user_id)
-		return flag, user_id
-	} else {
-		fmt.Println("Недействительный токен")
+	// Проверка валидности токена
+	if !token.Valid {
 		return false, 0
 	}
+
+	// Извлечение полезной нагрузки (claims) из токена
+	if claims, ok := token.Claims.(jwt.MapClaims); ok {
+		// Извлекаем user_id из claims
+		if userIDFloat, ok := claims["id"].(float64); ok {
+			// Приводим float64 к int
+			return true, int(userIDFloat)
+		}
+		return false, 0
+	}
+
+	return false, 0
 }
