@@ -55,6 +55,10 @@ type Owner_id struct {
 	Owner_id int `json:"owner_id"`
 }
 
+type Ads_id struct {
+	Ads_id int `json:"ads_id"`
+}
+
 type LegalUser struct {
 	Avatar string `json:"avatar"`
 
@@ -366,7 +370,7 @@ func DeleteImage(rw http.ResponseWriter, pwd, imageName string) (error, bool) {
 	return nil, true
 }
 
-func (a *MyApp) SignupUserByEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) error {
+func (a *MyApp) SignupUserByEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) error {
 	type Kesh struct {
 		Email string `json:"Email"`
 		Code  int    `json:"Code"`
@@ -490,17 +494,30 @@ func (a *MyApp) SignupUserByEmailPOST(rw http.ResponseWriter, r *http.Request, r
 		Data    Data   `json:"data,omitempty"`
 		Message string `json:"message"`
 	}
-	fmt.Println("Регистрируем пользователя через почту " + ValidToken_jwt)
 
-	if err != nil || ValidToken_jwt == "" {
+	// Лог с контекстом
+	logger.Info().
+		Str("service", "login").
+		Int("port", 8080).
+		Msg("User enter code and email")
+
+	if err != nil {
 		response := Response{
 			Status:  "fatal",
 			Message: "Почта не принята",
 		}
 
+		// Лог с контекстом
+		logger.Info().
+			Str("service", "login").
+			Int("port", 8080).
+			Msg("User enter code and email")
+
 		json.NewEncoder(rw).Encode(response)
 
 		return err
+	} else if ValidToken_jwt == "" {
+
 	}
 
 	response := Response{
@@ -514,7 +531,7 @@ func (a *MyApp) SignupUserByEmailPOST(rw http.ResponseWriter, r *http.Request, r
 	return err
 }
 
-func (a *MyApp) SignupUserByPhonePOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) error {
+func (a *MyApp) SignupUserByPhonePOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) error {
 	type Kesh struct {
 		Phone_number string `json:"Phone_num"`
 		Code         int    `json:"Code"`
@@ -593,7 +610,7 @@ func (a *MyApp) SignupUserByPhonePOST(rw http.ResponseWriter, r *http.Request, r
 	return err
 }
 
-func (a *MyApp) EnterCodeFromEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) error {
+func (a *MyApp) EnterCodeFromEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) error {
 	type RegCode struct {
 		Email string `json:"Email"`
 		Code  int    `json:"Code"`
@@ -689,7 +706,7 @@ func (a *MyApp) EnterCodeFromEmailPOST(rw http.ResponseWriter, r *http.Request, 
 	return nil
 }
 
-func (a *MyApp) EnterCodeFromPhonePOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) error {
+func (a *MyApp) EnterCodeFromPhonePOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) error {
 	type Kesh struct {
 		Phone string `json:"Phone_num"`
 		Code  int    `json:"Code"`
@@ -772,7 +789,7 @@ func (a *MyApp) EnterCodeFromPhonePOST(rw http.ResponseWriter, r *http.Request, 
 	return nil
 }
 
-func (a *MyApp) SignupLegalEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) (err error) {
+func (a *MyApp) SignupLegalEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) (err error) {
 	type Kesh struct {
 		Email string
 		Code  int
@@ -848,7 +865,7 @@ func (a *MyApp) SignupLegalEmailPOST(rw http.ResponseWriter, r *http.Request, re
 	return err
 }
 
-func (a *MyApp) SignupLegalPhonePOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) (err error) {
+func (a *MyApp) SignupLegalPhonePOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) (err error) {
 	type Kesh struct {
 		Phone string `json:"Phone_num"`
 		Code  int    `json:"Code"`
@@ -923,7 +940,7 @@ func (a *MyApp) SignupLegalPhonePOST(rw http.ResponseWriter, r *http.Request, re
 	return err
 }
 
-func (a *MyApp) SignupNaturEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) (err error) {
+func (a *MyApp) SignupNaturEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) (err error) {
 	type Kesh struct {
 		Email string
 		Code  int
@@ -1001,7 +1018,7 @@ func (a *MyApp) SignupNaturEmailPOST(rw http.ResponseWriter, r *http.Request, re
 	return err
 }
 
-func (a *MyApp) SignupNaturPhonePOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) (err error) {
+func (a *MyApp) SignupNaturPhonePOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) (err error) {
 	type Kesh struct {
 		Phone string `json:"Phone_num"`
 		Code  int    `json:"Code"`
@@ -1077,7 +1094,7 @@ func (a *MyApp) SignupNaturPhonePOST(rw http.ResponseWriter, r *http.Request, re
 	return err
 }
 
-func (a *MyApp) EditingLegalUserDataPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) EditingLegalUserDataPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var legalUser LegalUser
 
 	// Парсинг JSON-запроса
@@ -1124,7 +1141,7 @@ func (a *MyApp) EditingLegalUserDataPOST(rw http.ResponseWriter, r *http.Request
 	}
 }
 
-func (a *MyApp) EditingNaturUserDataPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) EditingNaturUserDataPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var naturUser NaturUser
 
 	// Парсинг JSON-запроса
@@ -1179,7 +1196,7 @@ type Phone_num struct {
 	Phone_num string `json:"phone_num"`
 }
 
-func (a *MyApp) SendCodForEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
+func (a *MyApp) SendCodForEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) {
 	var email Email_name
 
 	// Парсинг JSON-запроса
@@ -1331,7 +1348,7 @@ func (a *MyApp) SendCodForEmailPOST(rw http.ResponseWriter, r *http.Request, red
 	return
 }
 
-func (a *MyApp) EnterCodFromEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
+func (a *MyApp) EnterCodFromEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) {
 	var email Reg_code
 
 	// Парсинг JSON-запроса
@@ -1400,7 +1417,7 @@ func (a *MyApp) EnterCodFromEmailPOST(rw http.ResponseWriter, r *http.Request, r
 	}
 }
 
-func (a *MyApp) SendCodForPhoneNumPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
+func (a *MyApp) SendCodForPhoneNumPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) {
 	var phone Phone_num
 
 	// Парсинг JSON-запроса
@@ -1484,7 +1501,7 @@ func (a *MyApp) SendCodForPhoneNumPOST(rw http.ResponseWriter, r *http.Request, 
 	return
 }
 
-func (a *MyApp) EnterCodFromPhoneNumPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
+func (a *MyApp) EnterCodFromPhoneNumPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) {
 	var phone Reg_code
 
 	// Парсинг JSON-запроса
@@ -1573,7 +1590,7 @@ func (a *MyApp) LoginPOST(rw http.ResponseWriter, r *http.Request, logger zerolo
 		Int("port", 8080).
 		Msg("User login")
 
-	err = repo.LoginSQL(a.app.Ctx, a.app.Repo.Pool, rw, login.Login, login.Password)
+	err = repo.LoginSQL(a.app.Ctx, a.app.Repo.Pool, rw, login.Login, login.Password, logger)
 
 	errorr(err)
 }
@@ -1582,7 +1599,7 @@ type ProductList struct {
 	Ads_list []int `json:"Ads_list"`
 }
 
-func (a *MyApp) ProductListPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) ProductListPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var productList ProductList
 
 	// Парсинг JSON-запроса
@@ -1626,7 +1643,7 @@ type PrintAds struct {
 	Ads_id int `json:"Ads_id"`
 }
 
-func (a *MyApp) PrintAdsPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) PrintAdsPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var printAds PrintAds
 
 	// Парсинг JSON-запроса
@@ -1651,7 +1668,7 @@ type SortProductListAll struct {
 	Rating   int       `json:"Rating"`
 }
 
-func (a *MyApp) SortProductListDailyRatePOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) SortProductListDailyRatePOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var sortProductList SortProductListAll
 
 	// Парсинг JSON-запроса
@@ -1672,7 +1689,7 @@ func (a *MyApp) SortProductListDailyRatePOST(rw http.ResponseWriter, r *http.Req
 	errorr(err)
 }
 
-func (a *MyApp) SortProductListHourlyRatePOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) SortProductListHourlyRatePOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var sortProductList SortProductListAll
 
 	// Парсинг JSON-запроса
@@ -1696,16 +1713,17 @@ func (a *MyApp) SortProductListHourlyRatePOST(rw http.ResponseWriter, r *http.Re
 type Ads struct {
 	Image []string `json:"Image"`
 
-	Id          int    `json:"Id"`
-	Title       string `json:"Title"`
-	Description string `json:"Description"`
-	Hourly_rate int    `json:"Hourly_rate"`
-	Daily_rate  int    `json:"Daily_rate"`
-	Category_id int    `json:"Category_id"`
-	Location    string `json:"Location"`
+	Id          int     `json:"Id"`
+	Title       string  `json:"Title"`
+	Description string  `json:"Description"`
+	Hourly_rate int     `json:"Hourly_rate"`
+	Daily_rate  int     `json:"Daily_rate"`
+	Category_id int     `json:"Category_id"`
+	PositionX   float64 `json:"PositionX"`
+	PositionY   float64 `json:"PositionY"`
 }
 
-func (a *MyApp) SignupAdsPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) SignupAdsPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var ads Ads
 
 	// Парсинг JSON-запроса
@@ -1736,7 +1754,8 @@ func (a *MyApp) SignupAdsPOST(rw http.ResponseWriter, r *http.Request) {
 			ads.Daily_rate,
 			user_id,
 			ads.Category_id,
-			ads.Location,
+			ads.PositionX,
+			ads.PositionY,
 			time.Now(),
 			ads.Image,
 			Pwd_mass,
@@ -1746,7 +1765,7 @@ func (a *MyApp) SignupAdsPOST(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *MyApp) EditAdsListPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) EditAdsListPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	type Ads struct {
 		Ads_id int `json:"Ads_id"`
 	}
@@ -1782,7 +1801,7 @@ func (a *MyApp) EditAdsListPOST(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *MyApp) UpdAdsPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) UpdAdsPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	type Ads struct {
 		Ads_id             int          `json:"Ads_id"`
 		Id_images_from_del []int        `json:"Images_from_del"`
@@ -1880,7 +1899,7 @@ func (a *MyApp) UpdAdsPOST(rw http.ResponseWriter, r *http.Request) {
 	// }
 }
 
-func (a *MyApp) DelAdsPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) DelAdsPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	type DelAds struct {
 		Ads_id int `json:"Ads_id"`
 	}
@@ -1918,7 +1937,7 @@ type FavAds struct {
 	Ads_id  int `json:"Ads_id"`
 }
 
-func (a *MyApp) SigFavAdsPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) SigFavAdsPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var ads FavAds
 
 	// Парсинг JSON-запроса
@@ -1941,7 +1960,7 @@ func (a *MyApp) SigFavAdsPOST(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *MyApp) DelFavAdsPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) DelFavAdsPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var ads FavAds
 
 	// Парсинг JSON-запроса
@@ -1967,7 +1986,7 @@ type Title struct {
 	Title string `json:"Title"`
 }
 
-func (a *MyApp) SearchForTechPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) SearchForTechPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var title Title
 
 	// Парсинг JSON-запроса
@@ -1987,7 +2006,7 @@ type SortProductListCategoriez struct {
 	Category []int `json:"Category"`
 }
 
-func (a *MyApp) SortProductListCategoriezPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) SortProductListCategoriezPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var sortProductList SortProductListCategoriez
 
 	// Парсинг JSON-запроса
@@ -2008,7 +2027,7 @@ type SigChat struct {
 	Id_ads int `json:"Ads_id"`
 }
 
-func (a *MyApp) ChatButtonInAdsPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) ChatButtonInAdsPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var sigChat SigChat
 
 	// Парсинг JSON-запроса
@@ -2033,7 +2052,7 @@ func (a *MyApp) ChatButtonInAdsPOST(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *MyApp) SigChatPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) SigChatPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var sigChat SigChat
 
 	// Парсинг JSON-запроса
@@ -2062,7 +2081,7 @@ type Chat struct {
 	Id_chat int `json:"Id_chat"`
 }
 
-func (a *MyApp) OpenChatPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) OpenChatPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var openChat Chat
 
 	// Парсинг JSON-запроса
@@ -2113,7 +2132,7 @@ type SendVideo struct {
 	Videos  []string `json:"Videos"`
 }
 
-func (a *MyApp) SendMessageAndImagePOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) SendMessageAndImagePOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var sendMess SendMessAndImg
 
 	// Парсинг JSON-запроса
@@ -2146,7 +2165,7 @@ func (a *MyApp) SendMessageAndImagePOST(rw http.ResponseWriter, r *http.Request)
 	}
 }
 
-func (a *MyApp) SendImagePOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) SendImagePOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var sendMess SendImg
 
 	// Парсинг JSON-запроса
@@ -2179,7 +2198,7 @@ func (a *MyApp) SendImagePOST(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *MyApp) SendMessagePOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) SendMessagePOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var sendMess SendMess
 
 	// Парсинг JSON-запроса
@@ -2200,7 +2219,7 @@ func (a *MyApp) SendMessagePOST(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *MyApp) SendMessageAndVideoPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) SendMessageAndVideoPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var sendMess SendMessAndVideo
 
 	// Парсинг JSON-запроса
@@ -2233,7 +2252,7 @@ func (a *MyApp) SendMessageAndVideoPOST(rw http.ResponseWriter, r *http.Request)
 	}
 }
 
-func (a *MyApp) SendVideoPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) SendVideoPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var sendMess SendVideo
 
 	// Парсинг JSON-запроса
@@ -2265,7 +2284,7 @@ func (a *MyApp) SendVideoPOST(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *MyApp) SigDisputInChatPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) SigDisputInChatPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var chat Chat
 
 	// Парсинг JSON-запроса
@@ -2294,9 +2313,10 @@ type SigReview struct {
 	Order_id int    `json:"Order_id"`
 	Rating   int    `json:"Rating"`
 	Comment  string `json:"Comment"`
+	State    int    `json:"State"`
 }
 
-func (a *MyApp) SigReviewPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) SigReviewPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var sigReview SigReview
 
 	// Парсинг JSON-запроса
@@ -2316,7 +2336,7 @@ func (a *MyApp) SigReviewPOST(rw http.ResponseWriter, r *http.Request) {
 	} else {
 		flag, user_id := jwt.IsAuthorized(token)
 		if flag {
-			err = repo.SigReviewSQL(a.app.Ctx, rw, a.app.Repo.Pool, user_id, sigReview.Order_id, sigReview.Rating, sigReview.Comment)
+			err = repo.SigReviewSQL(a.app.Ctx, rw, a.app.Repo.Pool, user_id, sigReview.Order_id, sigReview.Rating, sigReview.Comment, sigReview.State)
 
 			errorr(err)
 		}
@@ -2329,7 +2349,7 @@ type UpdReview struct {
 	Comment   string `json:"Comment"`
 }
 
-func (a *MyApp) UpdReviewPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) UpdReviewPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var updReview UpdReview
 
 	// Парсинг JSON-запроса
@@ -2356,7 +2376,7 @@ func (a *MyApp) UpdReviewPOST(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *MyApp) MediatorStartWorkingPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) MediatorStartWorkingPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var openChat Chat
 
 	// Парсинг JSON-запроса
@@ -2380,7 +2400,7 @@ func (a *MyApp) MediatorStartWorkingPOST(rw http.ResponseWriter, r *http.Request
 	errorr(err)
 }
 
-func (a *MyApp) MediatorEnterInChatPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) MediatorEnterInChatPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var openChat Chat
 
 	// Парсинг JSON-запроса
@@ -2405,7 +2425,7 @@ func (a *MyApp) MediatorEnterInChatPOST(rw http.ResponseWriter, r *http.Request)
 	errorr(err)
 }
 
-func (a *MyApp) MediatorFinishJobInChatPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) MediatorFinishJobInChatPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var openChat Chat
 
 	// Парсинг JSON-запроса
@@ -2436,7 +2456,7 @@ type Transact struct {
 	Amount  int `json:"Amount"`
 }
 
-func (a *MyApp) TransactionToAnotherPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) TransactionToAnotherPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var transact Transact
 
 	//запрос к счёту
@@ -2465,7 +2485,7 @@ func (a *MyApp) TransactionToAnotherPOST(rw http.ResponseWriter, r *http.Request
 	errorr(err)
 }
 
-func (a *MyApp) TransactionToSomethingPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) TransactionToSomethingPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var transact Transact
 
 	//запрос к счёту
@@ -2494,7 +2514,7 @@ func (a *MyApp) TransactionToSomethingPOST(rw http.ResponseWriter, r *http.Reque
 	errorr(err)
 }
 
-func (a *MyApp) TransactionToReturnAmountPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) TransactionToReturnAmountPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var transact Transact
 
 	//запрос к счёту
@@ -2530,41 +2550,146 @@ type Order struct {
 	Ends_at     int64 `json:"Ends_at"`
 }
 
-func (a *MyApp) RegisterOrderPOST(rw http.ResponseWriter, r *http.Request) {
-	var order Order
+func (a *MyApp) RegOrderHourlyPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
+	type Booking struct {
+		Ads_id    int     `json:"Ads_id"`
+		Starts_at int64   `json:"Starts_at"`
+		Ends_at   int64   `json:"Ends_at"`
+		PositionX float64 `json:"PositionX"`
+		PositionY float64 `json:"PositionY"`
+	}
 
-	//запрос к счёту
-
-	//если всё ок, то продолжаем
+	var booking Booking
 
 	// Парсинг JSON-запроса
-	err := json.NewDecoder(r.Body).Decode(&order)
+	err := json.NewDecoder(r.Body).Decode(&booking)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Преобразуем UNIX-время в тип time.Time
-	Starts_at := time.Unix(order.Starts_at, 0).UTC()
-	Ends_at := time.Unix(order.Ends_at, 0).UTC()
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	token, err := internal.ReadCookie("token", r)
+
+	if err != nil {
+		fmt.Println("что-то не так с токеном")
+	} else {
+		flag, user_id := jwt.IsAuthorized(token)
+
+		if flag {
+			err = repo.RegOrderHourlySQL(a.app.Ctx, rw, a.app.Repo.Pool, user_id, booking.Ads_id, time.Unix(booking.Starts_at, 0).UTC(), time.Unix(booking.Ends_at, 0).UTC(), booking.PositionX, booking.PositionY)
+
+			errorr(err)
+		}
+	}
+}
+
+func (a *MyApp) RegOrderDailyPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
+	type Booking struct {
+		Ads_id    int     `json:"Ads_id"`
+		Starts_at int64   `json:"Starts_at"`
+		Ends_at   int64   `json:"Ends_at"`
+		PositionX float64 `json:"PositionX"`
+		PositionY float64 `json:"PositionY"`
+	}
+
+	var booking Booking
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&booking)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
 	token, err := internal.ReadCookie("token", r)
-	errorr(err)
 
-	flag, user_id := jwt.IsAuthorized(token)
-	if flag {
+	if err != nil {
+		fmt.Println("что-то не так с токеном")
+	} else {
+		flag, user_id := jwt.IsAuthorized(token)
 
-		err = repo.RegisterOrderSQL(a.app.Ctx, rw, a.app.Repo.Pool, order.Ad_id, user_id, order.Total_price, Starts_at, Ends_at)
+		if flag {
+			err = repo.RegOrderDailySQL(a.app.Ctx, rw, a.app.Repo.Pool, user_id, booking.Ads_id, time.Unix(booking.Starts_at, 0).UTC(), time.Unix(booking.Ends_at, 0).UTC(), booking.PositionX, booking.PositionY)
 
-		errorr(err)
+			errorr(err)
+		}
 	}
 }
 
-func (a *MyApp) RegBookingHourlyPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) BiddingPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
+	type Bidding struct {
+		Ads_id      int     `json:"Ads_id"`
+		Global_rate int     `json:"Global_rate"`
+		Start_at    int64   `json:"Start_at"`
+		End_at      int64   `json:"End_at"`
+		PositionX   float64 `json:"PositionX"`
+		PositionY   float64 `json:"PositionY"`
+	}
+
+	var bidding Bidding
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&bidding)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	token, err := internal.ReadCookie("token", r)
+
+	if err != nil {
+		fmt.Println("что-то не так с токеном")
+	} else {
+		flag, user_id := jwt.IsAuthorized(token)
+
+		if flag {
+			err = repo.BiddingSQL(a.app.Ctx, rw, a.app.Repo.Pool, bidding.Ads_id, bidding.Global_rate, user_id, time.Unix(bidding.Start_at, 0).UTC(), time.Unix(bidding.End_at, 0).UTC(), bidding.PositionX, bidding.PositionY)
+
+			errorr(err)
+		}
+	}
+}
+
+func (a *MyApp) RegOrderWithBiddingPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	type Booking struct {
-		Ads_id    int   `json:"Ads_id"`
+		Bidding_id int `json:"Bidding_id"`
+	}
+
+	var booking Booking
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&booking)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	token, err := internal.ReadCookie("token", r)
+
+	if err != nil {
+		fmt.Println("что-то не так с токеном")
+	} else {
+		flag, user_id := jwt.IsAuthorized(token)
+
+		if flag {
+			err = repo.RegOrderWithBiddingSQL(a.app.Ctx, rw, a.app.Repo.Pool, user_id, booking.Bidding_id)
+
+			errorr(err)
+		}
+	}
+}
+
+func (a *MyApp) RebookOrderHourlyPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
+	type Booking struct {
+		Order_id  int   `json:"Order_id"`
 		Starts_at int64 `json:"Starts_at"`
 		Ends_at   int64 `json:"Ends_at"`
 	}
@@ -2588,51 +2713,18 @@ func (a *MyApp) RegBookingHourlyPOST(rw http.ResponseWriter, r *http.Request) {
 		flag, user_id := jwt.IsAuthorized(token)
 
 		if flag {
-			err = repo.RegBookingHourlySQL(a.app.Ctx, rw, a.app.Repo.Pool, user_id, booking.Ads_id, time.Unix(booking.Starts_at, 0).UTC(), time.Unix(booking.Ends_at, 0).UTC())
+			err = repo.RebookOrderHourlySQL(a.app.Ctx, rw, a.app.Repo.Pool, user_id, booking.Order_id, time.Unix(booking.Starts_at, 0).UTC(), time.Unix(booking.Ends_at, 0).UTC())
 
 			errorr(err)
 		}
 	}
 }
 
-func (a *MyApp) BiddingPOST(rw http.ResponseWriter, r *http.Request) {
-	type Bidding struct {
-		Chat_id     int `json:"Chat_id"`
-		Global_rate int `json:"Global_rate"`
-	}
-
-	var bidding Bidding
-
-	// Парсинг JSON-запроса
-	err := json.NewDecoder(r.Body).Decode(&bidding)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
-
-	token, err := internal.ReadCookie("token", r)
-
-	if err != nil {
-		fmt.Println("что-то не так с токеном")
-	} else {
-		flag, user_id := jwt.IsAuthorized(token)
-
-		if flag {
-			err = repo.BiddingSQL(a.app.Ctx, rw, a.app.Repo.Pool, user_id, bidding.Chat_id, bidding.Global_rate)
-
-			errorr(err)
-		}
-	}
-}
-
-func (a *MyApp) RegBookingWithBiddingPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) RebookOrderDailyPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	type Booking struct {
-		Order_id   int   `json:"Order_id"`
-		Bidding_id int   `json:"Bidding_id"`
-		Starts_at  int64 `json:"Starts_at"`
-		Ends_at    int64 `json:"Ends_at"`
+		Order_id  int   `json:"Order_id"`
+		Starts_at int64 `json:"Starts_at"`
+		Ends_at   int64 `json:"Ends_at"`
 	}
 
 	var booking Booking
@@ -2654,48 +2746,14 @@ func (a *MyApp) RegBookingWithBiddingPOST(rw http.ResponseWriter, r *http.Reques
 		flag, user_id := jwt.IsAuthorized(token)
 
 		if flag {
-			err = repo.RegBookingWithBiddingSQL(a.app.Ctx, rw, a.app.Repo.Pool, user_id, booking.Order_id, booking.Bidding_id, time.Unix(booking.Starts_at, 0).UTC(), time.Unix(booking.Ends_at, 0).UTC())
+			err = repo.RebookOrderDailySQL(a.app.Ctx, rw, a.app.Repo.Pool, user_id, booking.Order_id, time.Unix(booking.Starts_at, 0).UTC(), time.Unix(booking.Ends_at, 0).UTC())
 
 			errorr(err)
 		}
 	}
 }
 
-func (a *MyApp) RebookBookingPOST(rw http.ResponseWriter, r *http.Request) {
-	type Booking struct {
-		Id_old_book int   `json:"Id_old_book"`
-		Starts_at   int64 `json:"Starts_at"`
-		Ends_at     int64 `json:"Ends_at"`
-	}
-
-	var booking Booking
-
-	// Парсинг JSON-запроса
-	err := json.NewDecoder(r.Body).Decode(&booking)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
-
-	token, err := internal.ReadCookie("token", r)
-
-	if err != nil {
-		fmt.Errorf("Ошибка создания объявления: %v", err)
-		return
-	} else {
-		flag, user_id := jwt.IsAuthorized(token)
-
-		if flag {
-			err = repo.RebookBookingSQL(a.app.Ctx, rw, a.app.Repo.Pool, booking.Id_old_book, user_id, time.Unix(booking.Starts_at, 0).UTC(), time.Unix(booking.Ends_at, 0).UTC())
-
-			errorr(err)
-		}
-	}
-}
-
-func (a *MyApp) ComplBookingPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) ComplBookingPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	type Booking struct {
 		Bookings_id []int `json:"Bookings_id"`
 	}
@@ -2730,7 +2788,7 @@ type Report struct {
 	Order_id int `json:"Order_id"`
 }
 
-func (a *MyApp) RegReportPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) RegReportPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var report Report
 
 	//запрос к счёту
@@ -2764,7 +2822,7 @@ type Passwd struct {
 	Passwd_2 string `json:"Passwd_2"`
 }
 
-func (a *MyApp) SendCodeForRecoveryPassWithEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
+func (a *MyApp) SendCodeForRecoveryPassWithEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) {
 	var passwd Passwd
 
 	// Парсинг JSON-запроса
@@ -2840,7 +2898,7 @@ func (a *MyApp) SendCodeForRecoveryPassWithEmailPOST(rw http.ResponseWriter, r *
 	errorr(err)
 }
 
-func (a *MyApp) EnterCodeForRecoveryPassWithEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
+func (a *MyApp) EnterCodeForRecoveryPassWithEmailPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) {
 	var email Reg_code
 
 	// Парсинг JSON-запроса
@@ -2909,7 +2967,7 @@ func (a *MyApp) EnterCodeForRecoveryPassWithEmailPOST(rw http.ResponseWriter, r 
 	}
 }
 
-func (a *MyApp) SendCodeForRecoveryPassWithPhoneNumPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
+func (a *MyApp) SendCodeForRecoveryPassWithPhoneNumPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) {
 	var passwd Passwd
 
 	// Парсинг JSON-запроса
@@ -2984,7 +3042,7 @@ func (a *MyApp) SendCodeForRecoveryPassWithPhoneNumPOST(rw http.ResponseWriter, 
 	errorr(err)
 }
 
-func (a *MyApp) EnterCodeForRecoveryPassWithPhoneNumPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
+func (a *MyApp) EnterCodeForRecoveryPassWithPhoneNumPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) {
 	var email Reg_code
 
 	// Парсинг JSON-запроса
@@ -3053,7 +3111,7 @@ func (a *MyApp) EnterCodeForRecoveryPassWithPhoneNumPOST(rw http.ResponseWriter,
 	}
 }
 
-func (a *MyApp) AutorizLoginEmailSendPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
+func (a *MyApp) AutorizLoginEmailSendPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) {
 	var login Login
 
 	// Парсинг JSON-запроса
@@ -3155,7 +3213,7 @@ func (a *MyApp) AutorizLoginEmailSendPOST(rw http.ResponseWriter, r *http.Reques
 	rw.Write([]byte("Код отправлен на вашу почту."))
 }
 
-func (a *MyApp) AutorizLoginEmailEnterPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client) {
+func (a *MyApp) AutorizLoginEmailEnterPOST(rw http.ResponseWriter, r *http.Request, redisClient *redis.Client, logger zerolog.Logger) {
 	var code Reg_code
 
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
@@ -3191,12 +3249,12 @@ func (a *MyApp) AutorizLoginEmailEnterPOST(rw http.ResponseWriter, r *http.Reque
 	}
 
 	if storedKesh.Code == code.Reg_code {
-		err := repo.LoginSQL(a.app.Ctx, a.app.Repo.Pool, rw, storedKesh.Login.Login, storedKesh.Login.Password)
+		err := repo.LoginSQL(a.app.Ctx, a.app.Repo.Pool, rw, storedKesh.Login.Login, storedKesh.Login.Password, logger)
 		errorr(err)
 	}
 }
 
-func (a *MyApp) AllUserAdsPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) AllUserAdsPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var owner_id Owner_id
 
 	// Парсинг JSON-запроса
@@ -3209,7 +3267,7 @@ func (a *MyApp) AllUserAdsPOST(rw http.ResponseWriter, r *http.Request) {
 	errorr(err)
 }
 
-func (a *MyApp) AllAdsOfThisUserPOST(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) AllAdsOfThisUserPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	var owner_id Owner_id
 
 	// Парсинг JSON-запроса
@@ -3235,6 +3293,94 @@ func (a *MyApp) AllAdsOfThisUserPOST(rw http.ResponseWriter, r *http.Request) {
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(response)
 	}
+}
+
+type WalletHistory struct {
+	Typee int `json:"Type"`
+}
+
+func (a *MyApp) WalletHistoryPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
+	var walletHist WalletHistory
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&walletHist)
+	errorr(err)
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	token, err := r.Cookie("token")
+
+	token_flag, user_id := jwt.IsAuthorized(token.Value)
+
+	if token_flag {
+		err = repo.WalletHistorySQL(a.app.Ctx, rw, a.app.Repo.Pool, r, user_id, walletHist.Typee)
+
+		errorr(err)
+	} else {
+		response := Response{
+			Status:  "fatal",
+			Message: "Что-то не так с токеном",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+	}
+}
+
+func (a *MyApp) GroupReviewNewOnesFirstPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
+	var ads_id Ads_id
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&ads_id)
+	errorr(err)
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	err = repo.GroupReviewNewOnesFirstSQL(a.app.Ctx, rw, a.app.Repo.Pool, r, ads_id.Ads_id)
+
+	errorr(err)
+}
+
+func (a *MyApp) GroupReviewOldOnesFirstPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
+	var ads_id Ads_id
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&ads_id)
+	errorr(err)
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	err = repo.GroupReviewOldOnesFirstSQL(a.app.Ctx, rw, a.app.Repo.Pool, r, ads_id.Ads_id)
+
+	errorr(err)
+}
+
+func (a *MyApp) GroupReviewLowRatOnesFirstPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
+	var ads_id Ads_id
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&ads_id)
+	errorr(err)
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	err = repo.GroupReviewLowRatOnesFirstSQL(a.app.Ctx, rw, a.app.Repo.Pool, r, ads_id.Ads_id)
+
+	errorr(err)
+}
+
+func (a *MyApp) GroupReviewHigRatOnesFirstPOST(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
+	var ads_id Ads_id
+
+	// Парсинг JSON-запроса
+	err := json.NewDecoder(r.Body).Decode(&ads_id)
+	errorr(err)
+
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	err = repo.GroupReviewHigRatOnesFirstSQL(a.app.Ctx, rw, a.app.Repo.Pool, r, ads_id.Ads_id)
+
+	errorr(err)
 }
 
 type Token struct {

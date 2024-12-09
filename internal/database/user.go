@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-redis/redis/v8"
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/rs/zerolog"
 )
 
 type MyRepository struct {
@@ -588,7 +589,7 @@ type Login struct {
 	Patronomic_or_Addres_name string `json:"Patronomic_or_Addres_name"`
 }
 
-func (repo *MyRepository) LoginSQL(ctx context.Context, rep *pgxpool.Pool, rw http.ResponseWriter, login, hashedPassword string) (err error) {
+func (repo *MyRepository) LoginSQL(ctx context.Context, rep *pgxpool.Pool, rw http.ResponseWriter, login, hashedPassword string, logger zerolog.Logger) (err error) {
 	var u Login
 
 	row := rep.QueryRow(ctx,
@@ -631,6 +632,12 @@ func (repo *MyRepository) LoginSQL(ctx context.Context, rep *pgxpool.Pool, rw ht
 			Status:  "fatal",
 			Message: err.Error(),
 		}
+
+		// Лог с контекстом
+		logger.Info().
+			Str("service", "login").
+			Int("port", 8080).
+			Msg("The user entered an invalid username or password")
 
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(response)

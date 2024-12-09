@@ -19,7 +19,8 @@ func GenerateJWT(name string, user_id int) (string, error) { //функция, �
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{ //токен, который выдают пользователю
 		"name": name,
 		"id":   user_id,
-		"exp":  time.Now().Add(time.Minute * 30).Unix(), //время жизни токена
+		"exp":  time.Now().Add(365 * 24 * time.Hour).Unix(), // 1 год
+		// "exp":  time.Now().Add(time.Minute * 30).Unix(), //время жизни токена
 	})
 
 	tokenString, err := token.SignedString(mySigningKey) //генерация токена в строковом формате

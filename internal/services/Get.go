@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/rs/zerolog"
 )
 
 type App struct { //структура приложеия
@@ -25,7 +26,7 @@ type Repository struct {
 	Pool *pgxpool.Pool
 }
 
-func (a *MyApp) DisputeChatPanelGET(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) DisputeChatPanelGET(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
 	// token, err := internal.ReadCookie("token", r)
@@ -41,7 +42,7 @@ func (a *MyApp) DisputeChatPanelGET(rw http.ResponseWriter, r *http.Request) {
 	errorr(err)
 }
 
-func (a *MyApp) GroupAdsByHourlyRateGET(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) GroupAdsByHourlyRateGET(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
 	err := repo.GroupAdsByHourlyRateSQL(a.app.Ctx, rw, a.app.Repo.Pool)
@@ -49,7 +50,7 @@ func (a *MyApp) GroupAdsByHourlyRateGET(rw http.ResponseWriter, r *http.Request)
 	errorr(err)
 }
 
-func (a *MyApp) GroupAdsByDailyRateGET(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) GroupAdsByDailyRateGET(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
 	err := repo.GroupAdsByDailyRateSQL(a.app.Ctx, rw, a.app.Repo.Pool)
@@ -57,7 +58,7 @@ func (a *MyApp) GroupAdsByDailyRateGET(rw http.ResponseWriter, r *http.Request) 
 	errorr(err)
 }
 
-func (a *MyApp) GroupFavByRecentGET(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) GroupFavByRecentGET(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
 	token, err := internal.ReadCookie("token", r)
@@ -72,7 +73,7 @@ func (a *MyApp) GroupFavByRecentGET(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *MyApp) GroupFavByCheaperGET(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) GroupFavByCheaperGET(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
 	token, err := internal.ReadCookie("token", r)
@@ -87,7 +88,7 @@ func (a *MyApp) GroupFavByCheaperGET(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *MyApp) GroupFavByDearlyGET(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) GroupFavByDearlyGET(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
 	token, err := internal.ReadCookie("token", r)
@@ -102,39 +103,7 @@ func (a *MyApp) GroupFavByDearlyGET(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *MyApp) GroupReviewNewOnesFirstGET(rw http.ResponseWriter, r *http.Request) {
-	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
-
-	err := repo.GroupReviewNewOnesFirstSQL(a.app.Ctx, rw, a.app.Repo.Pool)
-
-	errorr(err)
-}
-
-func (a *MyApp) GroupReviewOldOnesFirstGET(rw http.ResponseWriter, r *http.Request) {
-	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
-
-	err := repo.GroupReviewOldOnesFirstSQL(a.app.Ctx, rw, a.app.Repo.Pool)
-
-	errorr(err)
-}
-
-func (a *MyApp) GroupReviewLowRatOnesFirstGET(rw http.ResponseWriter, r *http.Request) {
-	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
-
-	err := repo.GroupReviewLowRatOnesFirstSQL(a.app.Ctx, rw, a.app.Repo.Pool)
-
-	errorr(err)
-}
-
-func (a *MyApp) GroupReviewHigRatOnesFirstGET(rw http.ResponseWriter, r *http.Request) {
-	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
-
-	err := repo.GroupReviewHigRatOnesFirstSQL(a.app.Ctx, rw, a.app.Repo.Pool)
-
-	errorr(err)
-}
-
-func (a *MyApp) GroupAdsByRentedGET(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) GroupAdsByRentedGET(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 	token, err := internal.ReadCookie("token", r)
 	errorr(err)
@@ -147,7 +116,7 @@ func (a *MyApp) GroupAdsByRentedGET(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *MyApp) GroupAdsByArchivedGET(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) GroupAdsByArchivedGET(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 	token, err := internal.ReadCookie("token", r)
 	errorr(err)
@@ -160,7 +129,7 @@ func (a *MyApp) GroupAdsByArchivedGET(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *MyApp) GroupOrdersByRentedGET(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) GroupOrdersByRentedGET(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 	// token, err := internal.ReadCookie("token", r)
 
@@ -176,7 +145,7 @@ func (a *MyApp) GroupOrdersByRentedGET(rw http.ResponseWriter, r *http.Request) 
 	// }
 }
 
-func (a *MyApp) GroupOrdersByUnRentedGET(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) GroupOrdersByUnRentedGET(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 	// token, err := internal.ReadCookie("token", r)
 
@@ -192,7 +161,7 @@ func (a *MyApp) GroupOrdersByUnRentedGET(rw http.ResponseWriter, r *http.Request
 	// }
 }
 
-func (a *MyApp) PrintChatGET(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) PrintChatGET(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 	// Попытка прочитать куку
 	token, err := r.Cookie("token")
@@ -208,7 +177,7 @@ func (a *MyApp) PrintChatGET(rw http.ResponseWriter, r *http.Request) {
 	errorr(err)
 }
 
-func (a *MyApp) BookingListGET(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) BookingListGET(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
 
 	token, err := internal.ReadCookie("token", r)
@@ -226,7 +195,7 @@ func (a *MyApp) BookingListGET(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *MyApp) RefreshTokenGET(rw http.ResponseWriter, r *http.Request) {
+func (a *MyApp) RefreshTokenGET(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
 	token, err := r.Cookie("Refresh_token")
 	errorr(err)
 
@@ -298,5 +267,27 @@ func (a *MyApp) RefreshTokenGET(rw http.ResponseWriter, r *http.Request) {
 		rw.WriteHeader(http.StatusOK)
 		json.NewEncoder(rw).Encode(response)
 		return
+	}
+}
+
+func (a *MyApp) WalletListGET(rw http.ResponseWriter, r *http.Request, logger zerolog.Logger) {
+	repo := database.NewRepo(a.app.Ctx, a.app.Repo.Pool)
+
+	token, err := r.Cookie("token")
+
+	token_flag, user_id := jwt.IsAuthorized(token.Value)
+
+	if token_flag {
+		err = repo.WalletListSQL(a.app.Ctx, rw, a.app.Repo.Pool, r, user_id)
+
+		errorr(err)
+	} else {
+		response := Response{
+			Status:  "fatal",
+			Message: "Что-то не так с токеном",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
 	}
 }

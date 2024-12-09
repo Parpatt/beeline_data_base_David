@@ -2,11 +2,9 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgtype"
@@ -44,7 +42,6 @@ func (repo *MyRepository) ProductListSQL(ctx context.Context, rw http.ResponseWr
 		Category_id int
 	}
 
-	var Duration_mass []string
 	var Favorite_flag_mass []bool
 	var Review_count_mass []int
 
@@ -60,22 +57,18 @@ func (repo *MyRepository) ProductListSQL(ctx context.Context, rw http.ResponseWr
 					MAX(bookings.starts_at),
 					MAX(bookings.ends_at)
 				] AS date_range
-			FROM ads.ads
-			LEFT JOIN orders.orders 
-				ON orders.ad_id = ads.id
-			LEFT JOIN orders.bookings 
-				ON bookings.order_id = orders.id
-			WHERE ads.id = ANY($2::INT[])
+			FROM ads.ads, orders.bookings
+			WHERE ads.id = ANY($2::INT[]) AND bookings.ads_id = ads.id
 			GROUP BY ads.id, ads.owner_id
 		)
 		SELECT
-			COALESCE(t1.File_path::TEXT, '/root/'),
+			COALESCE(t1.File_path::TEXT, '/root/') AS Ads_path,
 			t2.Title::TEXT,
 			t2.Hourly_rate,
 			t2.Description::TEXT,
-			Duration(
+			COALESCE((Duration(
 				(SELECT d.date_range::date[] FROM duration d WHERE d.id = t2.id)
-			) AS duration_result, -- Функция принимает массив
+			))[1], 'Нет точной информации'),
 			t2.Created_at,
 			Favorite_flag($1, $2::INT[]),
 			t4.Avatar_path::TEXT as User_avatar,
@@ -114,7 +107,7 @@ func (repo *MyRepository) ProductListSQL(ctx context.Context, rw http.ResponseWr
 			&p.Title,
 			&p.Hourly_rate,
 			&p.Description,
-			&Duration_mass,
+			&p.Duration,
 			&p.Created_at,
 			&Favorite_flag_mass,
 			&p.Avatar_path,
@@ -134,7 +127,6 @@ func (repo *MyRepository) ProductListSQL(ctx context.Context, rw http.ResponseWr
 	}
 
 	for i := 0; i < len(products); i++ { //пока что у нас три объявления
-		// products[i].Duration = Duration_mass[i]
 		products[i].Favorite_flag = Favorite_flag_mass[i]
 		products[i].Review_count = Review_count_mass[i]
 
@@ -174,121 +166,254 @@ func (repo *MyRepository) ProductListSQL(ctx context.Context, rw http.ResponseWr
 	return
 }
 
-type CustomerReviews struct {
-	Avatar      string    `json:"Avatar"`
-	Avatar_path string    `json:"Avatar_path"`
-	Name        string    `json:"Name"`
-	Updated_at  time.Time `json:"Updated_at"`
-	Rating      int       `json:"Rating"`
-	Comment     string    `json:"Comment"`
+type Review_type struct {
+	Review_id          *int    `json:"Review_id"`
+	User_id            *int    `json:"User_id"`
+	Review_name        *string `json:"Review_name"`
+	Review_avatar      *string `json:"Review_avatar"`
+	Review_avatar_path *string `json:"Review_avatar_path"`
+	Updated_at_comment *int    `json:"Updated_at_comment"`
+	Rating             *int    `json:"Rating"`
+	Comment            *string `json:"Comment"`
+	State              *int    `json:"State"`
 }
 
 type ForPrintAds struct {
-	Title            string            `json:"Title"`
-	Images           []string          `json:"Imags"`
-	Image_path       []string          `json:"File_path"`
-	Updated_at       time.Time         `json:"Updated_at"`
-	Description      string            `json:"Description"`
-	Location         string            `json:"Location"`
-	Position         pgtype.Point      `json:"Position"`
-	Customer_reviews []CustomerReviews `json:"Customer_reviews"`
-	Review_count     int               `json:"Review_count"`
-	Hourly_rate      int               `json:"Hourly_rate"`
-	Daily_rate       int               `json:"Daily_rate"`
-	Ads_id           int               `json:"Ads_id"`
-	Owner_id         int               `json:"Owner_id"`
-	Owner_host_name  string            `json:"Owner_host_name"`
-	Ind_num_taxp     int64             `json:"Ind_num_taxp"`
-	Rating           float64           `json:"Rating"`
-	All_Review_count int               `json:"All_Review_count"`
-	Ads_count        int               `json:"Ads_count"` //это
+	Title        string        `json:"Title"`
+	Images       []string      `json:"Imags"`
+	File_path    []string      `json:"File_path"`
+	Updated_at   int           `json:"Updated_at"`
+	Description  string        `json:"Description"`
+	Position     pgtype.Point  `json:"Position"`
+	Reviews      []Review_type `json:"reviews"`
+	Review_count int           `json:"Review_count"`
+	Hourly_rate  int           `json:"Hourly_rate"`
+	Daily_rate   int           `json:"Daily_rate"`
+	Ads_id       int           `json:"Ads_id"`
+	Owner_id     int           `json:"Owner_id"`
+	Owner_name   string        `json:"Owner_name"`
+	Avatar       string        `json:"Avatar"`
+	Avatar_path  string        `json:"Avatar_path"`
+	Owner_rating float32       `json:"Owner_rating"`
+	Duration     string        `json:"Duration"`
+	Ads_count    int           `json:"Ads_count"`
 }
 
-func (repo *MyRepository) PrintAdsSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, r *http.Request, id int) (err error) {
+func (repo *MyRepository) PrintAdsSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, r *http.Request, ads_id int) (err error) {
 	prod := []ForPrintAds{}
 
-	request, err := rep.Query(ctx,
-		`
+	request, err := rep.Query(ctx, `
+		WITH CustomerReviews AS (
+			SELECT DISTINCT
+			reviews.id AS reviews_id,
+			users.id AS user_id,
+			COALESCE(individual_user.name, company_user.name_of_company) AS name,
+			users.avatar_path,
+			COALESCE(reviews.updated_at, reviews.created_at) AS updated_at,
+			reviews.rating,
+			reviews.state,
+			COALESCE(reviews.comment, 'Пустой комментарий') AS comment
+		FROM
+			ads.reviews
+		JOIN
+			orders.orders ON reviews.order_id = orders.id
+		JOIN
+			orders.bookings ON bookings.order_id = orders.id
+		JOIN
+			finance.transactions ON bookings.transaction_id = transactions.id
+		JOIN
+			finance.wallets ON transactions.wallet_id = wallets.id
+		JOIN
+			users.users ON wallets.user_id = users.id
+		LEFT JOIN
+			users.individual_user ON users.id = individual_user.user_id
+		LEFT JOIN
+			users.company_user ON users.id = company_user.user_id
+		WHERE
+			bookings.ads_id = $1
+			),
+			duration AS (
+				SELECT 
+				ads.id,
+				ads.owner_id,
+				ARRAY[
+					MAX(bookings.starts_at),
+					MAX(bookings.ends_at)
+					] AS date_range
+				FROM ads.ads, orders.bookings
+				WHERE bookings.ads_id = ads.id
+				GROUP BY ads.id, ads.owner_id
+		),
+		owner_info AS (
+			SELECT 
+				ads.owner_id AS owner_id
+			FROM ads.ads
+			WHERE ads.id = $1
+		),
+		ads_info AS (
+			SELECT COUNT(*) AS ads_count
+			FROM ads.ads
+			WHERE ads.owner_id = (SELECT owner_id FROM owner_info)
+		)
 		SELECT
 			t2.title,
-			t1.file_path,  -- может быть NULL, если нет записи в ad_photos
-			t2.updated_at,
-			t2.description,
-			t2.location,
-			t2.position,
-			t2.hourly_rate,
-			t2.daily_rate,
-			t2.id as ads_id,
-			t2.owner_id,
-			ind_us.Name as owner_host_name,
-			comp_us.ind_num_taxp,
-			t4.rating
+			COALESCE(
+			CASE WHEN t1.file_path IS NULL THEN ARRAY['/home/'] ELSE ARRAY[t1.file_path] END,
+			ARRAY['/home/']
+		) AS file_path,
+		t2.updated_at,
+		t2.description,
+		t2.position::TEXT,
 
-		FROM
-			ads.ads t2
-		LEFT JOIN
-			ads.ad_photos t1
-			ON t2.id = t1.ad_id
-		LEFT JOIN
-			users.individual_user ind_us
-			ON ind_us.user_id = t2.owner_id
-		LEFT JOIN
-			users.company_user comp_us
-			ON comp_us.user_id = t2.owner_id
-		INNER JOIN
-			users.users t4
-			ON t2.owner_id = t4.id
-		WHERE
-			t2.status = true AND t2.id = $1
-		LIMIT 1;
-		`, id)
+		ARRAY(SELECT cr.reviews_id FROM CustomerReviews cr LIMIT 2) AS id,
+		ARRAY(SELECT cr.user_id FROM CustomerReviews cr LIMIT 2) AS id,
+		ARRAY(SELECT cr.name FROM CustomerReviews cr LIMIT 2) AS name,
+		ARRAY(SELECT cr.avatar_path FROM CustomerReviews cr LIMIT 2) AS avatar_path,
+		ARRAY(SELECT cr.updated_at FROM CustomerReviews cr LIMIT 2) AS updated_at,
+		ARRAY(SELECT cr.rating FROM CustomerReviews cr LIMIT 2) AS rating,
+		ARRAY(SELECT COALESCE(cr.comment, 'Пустой коммент') FROM CustomerReviews cr LIMIT 2) AS comment,
+		ARRAY(SELECT cr.state FROM CustomerReviews cr LIMIT 2) AS state,
+		CARDINALITY(ARRAY_AGG(cr.state)) AS Review_count, 
+
+		t2.hourly_rate,
+		t2.daily_rate, 
+		t2.id AS ads_id,
+		t2.owner_id,
+		COALESCE(ind_us.Name::TEXT, comp_us.name_of_company::TEXT) AS owner_name,
+		t4.avatar_path AS Avatar_path,
+		t4.rating,
+		COALESCE((Duration(
+			(SELECT d.date_range::date[] FROM duration d WHERE d.id = t2.id)
+		))[1], 'Нет точной информации') AS Duration,
+		ads_info.ads_count
+	FROM
+		ads.ads t2
+	LEFT JOIN
+		ads.ad_photos t1 ON t2.id = t1.ad_id
+	LEFT JOIN
+		users.individual_user ind_us ON ind_us.user_id = t2.owner_id
+	LEFT JOIN
+		users.company_user comp_us ON comp_us.user_id = t2.owner_id
+	INNER JOIN
+		users.users t4 ON t2.owner_id = t4.id
+	LEFT JOIN ads_info ON TRUE
+	LEFT JOIN
+		CustomerReviews cr ON TRUE
+	WHERE
+		t2.status = true AND t2.id = $1
+	GROUP BY
+		t2.id, t2.title, t2.updated_at, t2.description, t2.position::TEXT, t2.hourly_rate, t2.daily_rate, t2.owner_id, t4.rating, t4.avatar_path, ind_us.Name, comp_us.name_of_company, t1.file_path, ads_info.ads_count
+	LIMIT 1;
+		`, ads_id)
+	errorr(err)
+
+	var Avatar_cost []string
+	var Updated_at_int time.Time
 
 	for request.Next() {
-		p := ForPrintAds{}
-		var imagePath sql.NullString
-		var ownerHostName sql.NullString
-		var indNumTaxp sql.NullInt64
+		rev := ForPrintAds{}
+		var Review_id *[]int
+		var User_id *[]int
+		var Name_cost *[]string
+		var Avatar_path_cost *[]string
+		var Updated_at_cost *[]time.Time
+		var Rating_cost *[]int
+		var Comment_cost *[]string
+		var State_cost *[]int
+
 		err := request.Scan(
-			&p.Title,
-			&imagePath, // Используем sql.NullString для Image_path
-			&p.Updated_at,
-			&p.Description,
-			&p.Location,
-			&p.Position,
-			&p.Hourly_rate,
-			&p.Daily_rate,
-			&p.Ads_id,
-			&p.Owner_id,
-			&ownerHostName,
-			&indNumTaxp,
-			&p.Rating)
+			&rev.Title,
+			&rev.File_path,
+			&Updated_at_int,
+			&rev.Description,
+			&rev.Position,
 
-		if imagePath.Valid {
-			// Преобразуем одиночную строку в срез строк
-			p.Image_path = []string{imagePath.String}
-		} else {
-			// Если значение NULL, присваиваем пустой срез
-			p.Image_path = []string{}
-		}
+			&Review_id,
+			&User_id,
+			&Name_cost,
+			&Avatar_path_cost,
+			&Updated_at_cost,
+			&Rating_cost,
+			&Comment_cost,
+			&State_cost,
 
-		if ownerHostName.Valid {
-			p.Owner_host_name = ownerHostName.String
-		} else {
-			p.Owner_host_name = "" // Или любое значение по умолчанию
-		}
+			&rev.Review_count,
+			&rev.Hourly_rate,
+			&rev.Daily_rate,
+			&rev.Ads_id,
+			&rev.Owner_id,
+			&rev.Owner_name,
+			&rev.Avatar_path,
+			&rev.Owner_rating,
+			&rev.Duration,
+			&rev.Ads_count,
+		)
 
-		if indNumTaxp.Valid {
-			p.Ind_num_taxp = indNumTaxp.Int64
-		} else {
-			p.Ind_num_taxp = 0 // Или любое значение по умолчанию
+		rev.Updated_at = int(Updated_at_int.Unix())
+
+		if Review_id == nil || len(*Review_id) == 0 {
+			rev.Review_count = 0
 		}
 
 		if err != nil {
-			fmt.Println(err)
-			continue
+			return err
 		}
 
-		prod = append(prod, p)
+		if len(rev.File_path) > 0 {
+			for i := 0; i < len(rev.File_path); i++ {
+				rev.Images = append(rev.Images, ServeSpecificMediaBase64(rw, r, rev.File_path[i]))
+				rev.File_path[i] = "/home/"
+			}
+		}
+		if len(*Avatar_path_cost) > 0 {
+			for i := 0; i < len(*Avatar_path_cost); i++ {
+				Avatar_cost = append(Avatar_cost, ServeSpecificMediaBase64(rw, r, (*Avatar_path_cost)[i]))
+				(*Avatar_path_cost)[i] = "/home/"
+			}
+		}
+
+		if len(*Review_id) > 0 && len(*User_id) > 0 && len(*Name_cost) > 0 &&
+			len(*Avatar_path_cost) > 0 && len(*Updated_at_cost) > 0 &&
+			len(*Rating_cost) > 0 && len(*Comment_cost) > 0 && len(*State_cost) > 0 {
+
+			rev.Reviews = append(rev.Reviews, Review_type{
+				Review_id:     &(*Review_id)[0],
+				User_id:       &(*User_id)[0],
+				Review_name:   &(*Name_cost)[0],
+				Review_avatar: &Avatar_cost[0], // Проверьте, что Avatar_cost инициализирован
+				Updated_at_comment: func(t time.Time) *int {
+					i := int(t.Unix())
+					return &i
+				}((*Updated_at_cost)[0]),
+				Rating:  &(*Rating_cost)[0],
+				Comment: &(*Comment_cost)[0],
+				State:   &(*State_cost)[0],
+			})
+
+			if len(*Review_id) > 1 && len(*User_id) > 1 && len(*Name_cost) > 1 &&
+				len(*Avatar_path_cost) > 1 && len(*Updated_at_cost) > 1 &&
+				len(*Rating_cost) > 1 && len(*Comment_cost) > 1 && len(*State_cost) > 1 {
+
+				rev.Reviews = append(rev.Reviews, Review_type{
+					Review_id:     &(*Review_id)[1],
+					User_id:       &(*User_id)[1],
+					Review_name:   &(*Name_cost)[1],
+					Review_avatar: &Avatar_cost[1], // Проверьте, что Avatar_cost инициализирован
+					Updated_at_comment: func(t time.Time) *int {
+						i := int(t.Unix())
+						return &i
+					}((*Updated_at_cost)[1]),
+					Rating:  &(*Rating_cost)[1],
+					Comment: &(*Comment_cost)[1],
+					State:   &(*State_cost)[1],
+				})
+			}
+		}
+
+		rev.Avatar = ServeSpecificMediaBase64(rw, r, rev.Avatar_path)
+		rev.Avatar_path = "/home/"
+
+		prod = append(prod, rev)
 	}
 
 	type Response struct {
@@ -297,7 +422,7 @@ func (repo *MyRepository) PrintAdsSQL(ctx context.Context, rw http.ResponseWrite
 		Message string      `json:"message"`
 	}
 
-	if len(prod) == 0 || err != nil {
+	if len(prod) == 0 || err != nil || request == nil {
 		response := Response{
 			Status:  "fatal",
 			Message: "Объявление не найдено",
@@ -309,146 +434,16 @@ func (repo *MyRepository) PrintAdsSQL(ctx context.Context, rw http.ResponseWrite
 		return err
 	}
 
-	if len(prod) != 0 && len(prod[0].Image_path) != 0 {
-		for j := 0; j < len(strings.Split(prod[0].Image_path[0], ",")); j++ {
-			request := ServeSpecificMediaBase64(rw, r, prod[0].Image_path[0][65*j+1:65*j+65])
-
-			if request != "" {
-				prod[0].Images = append(prod[0].Images, request)
-			} else {
-				prod[0].Images = append(prod[0].Images, " ")
-			}
-		}
+	response := Response{
+		Status:  "success",
+		Data:    prod[0],
+		Message: "Объявление показано",
 	}
 
-	request, err = rep.Query(ctx,
-		`
-		SELECT
-			t1.name,
-			t3.avatar_path,
-			t2.updated_at,
-			t2.rating,
-			t2.comment
-		FROM
-			ads.reviews t2
-		INNER JOIN
-			users.individual_user t1
-			ON t2.reviewer_id = t1.user_id
-		INNER JOIN
-			users.users t3
-			ON t3.id = t1.user_id
-		WHERE t2.ad_id = $1;
-		`, id)
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
 
-	var mass []CustomerReviews
-
-	for request.Next() {
-		q := CustomerReviews{}
-		err := request.Scan(
-			&q.Name,
-			&q.Avatar_path,
-			&q.Updated_at,
-			&q.Rating,
-			&q.Comment)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-
-		mass = append(mass, CustomerReviews{"", q.Avatar_path, q.Name, q.Updated_at, q.Rating, q.Comment})
-	}
-
-	for i := 0; i < len(mass); i++ {
-		mass[i].Avatar = ServeSpecificMediaBase64(rw, r, mass[i].Avatar_path)
-
-		mass[i].Avatar_path = ""
-	}
-
-	prod[0].Customer_reviews = mass
-
-	prod[0].Review_count = len(prod[0].Customer_reviews)
-
-	request, err = rep.Query(ctx,
-		`
-		SELECT id FROM ads.reviews WHERE ad_id = $1;
-		`, id)
-
-	var mass_rev_count []int
-	for request.Next() {
-		var num int
-
-		err := request.Scan(
-			&num)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-
-		mass_rev_count = append(mass_rev_count, num)
-	}
-	prod[0].All_Review_count = len(mass_rev_count)
-
-	var mass_ads_count []int
-	request, err = rep.Query(ctx,
-		`
-		SELECT id FROM ads.ads WHERE owner_id = $1;
-		`, prod[0].Owner_id)
-
-	for request.Next() {
-		var num int
-
-		err := request.Scan(
-			&num)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-
-		mass_ads_count = append(mass_ads_count, num)
-	}
-	prod[0].Ads_count = len(mass_ads_count)
-
-	if err != nil {
-		response := Response{
-			Status:  "fatal",
-			Message: "Объявление не найдено",
-		}
-
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-
-		return err
-	} else {
-		data := ForPrintAds{
-			Title:            prod[0].Title,
-			Images:           prod[0].Images,
-			Updated_at:       prod[0].Updated_at,
-			Description:      prod[0].Description,
-			Location:         prod[0].Location,
-			Position:         prod[0].Position,
-			Customer_reviews: prod[0].Customer_reviews,
-			Review_count:     prod[0].Review_count,
-			Hourly_rate:      prod[0].Hourly_rate,
-			Daily_rate:       prod[0].Daily_rate,
-			Ads_id:           prod[0].Ads_id,
-			Owner_id:         prod[0].Owner_id,
-			Owner_host_name:  prod[0].Owner_host_name,
-			Rating:           prod[0].Rating,
-			All_Review_count: prod[0].All_Review_count,
-			Ads_count:        prod[0].Ads_count,
-		}
-
-		response := Response{
-			Status:  "success",
-			Data:    data,
-			Message: "Объявление показано",
-		}
-
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-
-		return err
-	}
+	return err
 }
 
 func (repo *MyRepository) SortProductListDailyRateSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, r *http.Request, category []int, lowNum, higNum int, lowDate, higDate time.Time, position []float64, distance, rating int) (err error) {
@@ -519,7 +514,7 @@ func (repo *MyRepository) SortProductListDailyRateSQL(ctx context.Context, rw ht
 			LEFT JOIN 
 				orders.orders AS orders 
 			ON 
-				bookings.ads_id = t2.id AND orders.booking_id = bookings.id
+				bookings.ads_id = t2.id AND orders.id = bookings.order_id
 			GROUP BY 
 				bookings.ads_id
 		)
@@ -640,10 +635,13 @@ func (repo *MyRepository) SortProductListHourlyRateSQL(ctx context.Context, rw h
 		Name               *string
 		Surname_or_ind_num *string
 		Owner_id           *int
-		Rating             *float64
+		Rating             *float32
 
 		Avatar_path  *string
 		Avatar_photo string
+
+		Review_count int
+		Duration     string
 	}
 	products := []Product{}
 
@@ -652,6 +650,18 @@ func (repo *MyRepository) SortProductListHourlyRateSQL(ctx context.Context, rw h
 	request, err := rep.Query(
 		ctx,
 		`
+		WITH duration AS (
+			SELECT 
+				ads.id,
+				ads.owner_id,
+				ARRAY[
+					MAX(bookings.starts_at),
+					MAX(bookings.ends_at)
+				] AS date_range
+			FROM ads.ads, orders.bookings
+			WHERE bookings.ads_id = ads.id
+			GROUP BY ads.id, ads.owner_id
+		)
 		SELECT DISTINCT ON (t2.Id)
 			t2.Id,
 			t1.File_path::TEXT,
@@ -662,8 +672,11 @@ func (repo *MyRepository) SortProductListHourlyRateSQL(ctx context.Context, rw h
 			COALESCE(t3.surname::TEXT, t5.ind_num_taxp::TEXT) AS Surname_or_ind_num,
 			t2.Owner_id,
 			t4.Rating,
-			t4.Avatar_path
-
+			t4.Avatar_path,
+			(Review_count(ARRAY[t2.id]::INT[]))[1],
+			COALESCE((Duration(
+				(SELECT d.date_range::date[] FROM duration d WHERE d.id = t2.id)
+			))[1], 'Нет точной информации')
 		FROM
 			ads.ads t2
 		LEFT JOIN
@@ -675,53 +688,44 @@ func (repo *MyRepository) SortProductListHourlyRateSQL(ctx context.Context, rw h
 			users.company_user t5 ON t5.user_id = t2.owner_id
 		INNER JOIN
 			users.users t4 ON t2.owner_id = t4.id
-
 		WHERE
 			(cardinality($1::INT[]) = 0 OR t2.category_id = ANY($1::INT[]))
-		-- сортировка по категориям
-		
 			AND $2 <= t2.Hourly_rate AND t2.Hourly_rate <= $3
-		-- сортировка по цене
-
 			AND EXISTS (
-		WITH booking_array AS (
-			SELECT 
-				array_agg(bookings.starts_at) AS starts_at_list,
-				array_agg(bookings.ends_at) AS ends_at_list,
-				array_agg(bookings.id) AS bookings_id_list,
-				bookings.ads_id AS ads_id_list
-			FROM 
-				orders.bookings AS bookings
-			LEFT JOIN 
-				orders.orders AS orders 
-			ON 
-				bookings.ads_id = t2.id AND orders.booking_id = bookings.id
-			GROUP BY 
-				bookings.ads_id
-		)
-		SELECT 
-			CASE 
-				WHEN booking_array.ads_id_list IS NULL -- Проверка, если записей нет
-					THEN TRUE
-					WHEN ($4 >= ALL(booking_array.starts_at_list) 
-					AND $5 >= ALL(booking_array.ends_at_list))
-			OR
-			($4 <= ALL(booking_array.starts_at_list) 
-					AND $5 <= ALL(booking_array.ends_at_list))
-				THEN TRUE 
-				ELSE FALSE 
-			END AS date_flag
-		FROM booking_array
+				WITH booking_array AS (
+				SELECT 
+					COALESCE(array_agg(bookings.starts_at::date), ARRAY[NULL::date]) AS starts_at_list,
+					COALESCE(array_agg(bookings.ends_at::date), ARRAY[NULL::date]) AS ends_at_list,
+					COALESCE(array_agg(bookings.id), ARRAY[NULL::int]) AS bookings_id_list,
+					COALESCE(bookings.ads_id, 0) AS ads_id_list
+				FROM 
+					orders.bookings AS bookings
+				RIGHT JOIN
+					orders.orders AS orders
+					ON orders.id = bookings.order_id AND bookings.ads_id = t2.Id
+				GROUP BY 
+					bookings.ads_id
+				)
+				SELECT
+				CASE
+					WHEN booking_array.ads_id_list IS NULL THEN TRUE
+					WHEN cardinality(array_remove(booking_array.starts_at_list, NULL)) = 0 THEN TRUE -- Проверка, содержит ли массив только NULL
+					WHEN ($4::date >= ALL(booking_array.starts_at_list) 
+					AND $5::date >= ALL(booking_array.ends_at_list))
+					OR ($4::date <= ALL(booking_array.starts_at_list) 
+					AND $5::date <= ALL(booking_array.ends_at_list))
+					THEN TRUE 
+					ELSE FALSE 
+				END AS date_flag
+				FROM booking_array
 			)
-		-- сортировка по дате
-
-		AND ST_Distance(
+			AND ST_Distance(
 					ST_SetSRID(ST_MakePoint($6::float8, $7::float8), 4326)::geography,
 					ST_SetSRID(ST_MakePoint(t2.Position[0], t2.Position[1]), 4326)::geography
 				) < $8
 		-- сортировка по радиусу
 		
-		AND COALESCE(t4.rating = $9, TRUE)
+		AND (COALESCE(t4.rating = $9, TRUE) OR COALESCE($9 = 0, TRUE))
 		-- сортировка по рейтингу
 		ORDER BY
 			t2.Id;
@@ -752,6 +756,8 @@ func (repo *MyRepository) SortProductListHourlyRateSQL(ctx context.Context, rw h
 			&p.Owner_id,
 			&p.Rating,
 			&p.Avatar_path,
+			&p.Review_count,
+			&p.Duration,
 		)
 		if err != nil {
 			fmt.Println(err)
@@ -813,20 +819,21 @@ func (repo *MyRepository) SignupAdsSQL(
 	daily_rate,
 	owner_id,
 	category_id int,
-	location string,
+	PositionX,
+	PositionY float64,
 	updated_at time.Time,
 	images []string,
 	pwd_mass []string,
 	pwd string) (err error) {
 	request, err := rep.Query(ctx, `
 			WITH i AS (
-				INSERT INTO Ads.ads (title, description, hourly_rate, daily_rate, owner_id, category_id, location, updated_at) 
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+				INSERT INTO Ads.ads (title, description, hourly_rate, daily_rate, owner_id, category_id, position, updated_at) 
+				VALUES ($1, $2, $3, $4, $5, $6, POINT($7, $8), $9) 
 				RETURNING id
 			),
 			p AS (
 				INSERT INTO Ads.Ad_photos (ad_id, file_path, removed_at, status)
-				SELECT i.id, $9, $10, $11 
+				SELECT i.id, $10, $11, $12
 				FROM i
 				RETURNING ad_id
 			)
@@ -838,7 +845,8 @@ func (repo *MyRepository) SignupAdsSQL(
 		daily_rate,
 		owner_id,
 		category_id,
-		location,
+		PositionX,
+		PositionY,
 		updated_at,
 
 		pwd,
@@ -1725,24 +1733,33 @@ func (repo *MyRepository) SortProductListCategoriezSQL(ctx context.Context, rw h
 	return err
 }
 
-func (repo *MyRepository) SigReviewSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id, order_id, rating int, comment string) (err error) {
+func (repo *MyRepository) SigReviewSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id, order_id, rating int, comment string, state int) (err error) {
 	request, err := rep.Query(
 		ctx,
 		`
-		WITH Ads AS(
-			SELECT ad_id, renter_id FROM orders.orders WHERE id = $1
+		WITH booking AS (
+			SELECT booking_id FROM orders.orders WHERE id = $1
+		),
+		transact AS (
+			SELECT transaction_id FROM orders.bookings WHERE id = (SELECT booking_id FROM booking)
+		),
+		wallet AS (
+			SELECT wallet_id FROM finance.transactions WHERE id = (SELECT transaction_id FROM transact)
+		),
+		users AS (
+			SELECT user_id FROM finance.wallets WHERE id = (SELECT wallet_id FROM wallet)
 		)
-		INSERT INTO Ads.reviews (ad_id, reviewer_id, rating, comment, updated_at)
-		SELECT (SELECT ad_id FROM Ads), $2, $3, $4, NOW()
-		WHERE (SELECT renter_id FROM Ads) = $5
+		INSERT INTO ads.reviews(order_id, rating, comment, state)
+		SELECT $1, $2, $3, $5
+		WHERE $4 = (SELECT user_id FROM users) AND $5 >= 1 AND $5 <= 4
 		RETURNING id;
 		`,
 
 		order_id,
-		user_id,
 		rating,
 		comment,
-		user_id)
+		user_id,
+		state)
 
 	errorr(err)
 
@@ -2482,7 +2499,7 @@ func (repo *MyRepository) GroupFavByRecentSQL(ctx context.Context, rw http.Respo
 			LEFT JOIN orders.bookings 
 				ON bookings.ads_id = ads.id
 			LEFT JOIN orders.orders
-				ON orders.booking_id = bookings.id
+				ON orders.id = bookings.order_id
 			INNER JOIN ads.favorite_ads 
 				ON ads.id = favorite_ads.ad_id AND favorite_ads.user_id = $1
 		)
@@ -2540,6 +2557,7 @@ func (repo *MyRepository) GroupFavByRecentSQL(ctx context.Context, rw http.Respo
 
 		29)
 	errorr(err)
+	fmt.Println(err)
 
 	for request.Next() {
 		p := Product{}
@@ -2647,7 +2665,7 @@ func (repo *MyRepository) GroupFavByCheaperSQL(ctx context.Context, rw http.Resp
 			LEFT JOIN orders.bookings 
 				ON bookings.ads_id = ads.id
 			LEFT JOIN orders.orders
-				ON orders.booking_id = bookings.id
+				ON orders.id = bookings.order_id
 			INNER JOIN ads.favorite_ads 
 				ON ads.id = favorite_ads.ad_id AND favorite_ads.user_id = $1
 		)
@@ -2811,7 +2829,7 @@ func (repo *MyRepository) GroupFavByDearlySQL(ctx context.Context, rw http.Respo
 			LEFT JOIN orders.bookings 
 				ON bookings.ads_id = ads.id
 			LEFT JOIN orders.orders
-				ON orders.booking_id = bookings.id
+				ON orders.id = bookings.order_id
 			INNER JOIN ads.favorite_ads 
 				ON ads.id = favorite_ads.ad_id AND favorite_ads.user_id = $1
 		)
@@ -2945,7 +2963,7 @@ func (repo *MyRepository) GroupAdsByRentedSQL(ctx context.Context, rw http.Respo
 		Daily_rate  int
 		Owner_id    int
 		Category_id int
-		Location    string
+		Position    pgtype.Point
 		Created_at  time.Time
 		Updated_at  time.Time
 	}
@@ -2953,7 +2971,7 @@ func (repo *MyRepository) GroupAdsByRentedSQL(ctx context.Context, rw http.Respo
 
 	request, err := rep.Query(
 		ctx,
-		"SELECT id, title, description, hourly_rate, daily_rate, owner_id, category_id, location, created_at, updated_at FROM Ads.ads WHERE status = true AND owner_id = $1;",
+		"SELECT id, title, description, hourly_rate, daily_rate, owner_id, category_id, position, created_at, updated_at FROM Ads.ads WHERE status = true AND owner_id = $1;",
 
 		user_id,
 	)
@@ -2969,7 +2987,7 @@ func (repo *MyRepository) GroupAdsByRentedSQL(ctx context.Context, rw http.Respo
 			&p.Daily_rate,
 			&p.Owner_id,
 			&p.Category_id,
-			&p.Location,
+			&p.Position,
 			&p.Created_at,
 			&p.Updated_at,
 		)
@@ -3017,7 +3035,7 @@ func (repo *MyRepository) GroupAdsByArchivedSQL(ctx context.Context, rw http.Res
 		Daily_rate  int
 		Owner_id    int
 		Category_id int
-		Location    string
+		Position    pgtype.Point
 		Created_at  time.Time
 		Updated_at  time.Time
 		Bool_state  bool
@@ -3026,7 +3044,7 @@ func (repo *MyRepository) GroupAdsByArchivedSQL(ctx context.Context, rw http.Res
 
 	request, err := rep.Query(
 		ctx,
-		"SELECT id, title, description, hourly_rate, daily_rate, owner_id, category_id, location, created_at, updated_at, false FROM Ads.ads WHERE status = false AND owner_id = $1;",
+		"SELECT id, title, description, hourly_rate, daily_rate, owner_id, category_id, position, created_at, updated_at, false FROM Ads.ads WHERE status = false AND owner_id = $1;",
 
 		user_id,
 	)
@@ -3045,7 +3063,7 @@ func (repo *MyRepository) GroupAdsByArchivedSQL(ctx context.Context, rw http.Res
 			&p.Daily_rate,
 			&p.Owner_id,
 			&p.Category_id,
-			&p.Location,
+			&p.Position,
 			&p.Created_at,
 			&p.Updated_at,
 			&p.Bool_state,

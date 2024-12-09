@@ -3,8 +3,10 @@ package database
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
 )
@@ -199,6 +201,200 @@ func (repo *MyRepository) TransactionToReturnAmountSQL(ctx context.Context, rw h
 	response := Response{
 		Status:  "success",
 		Data:    transact_id_int,
+		Message: "Транзакция прошла успешно",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+
+	return
+}
+
+func (repo *MyRepository) WalletHistorySQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, r *http.Request, user_id, typee int) (err error) {
+	type WallHist struct {
+		ID          int
+		Avatar_path string
+		Avatar      string
+		User_name   *string
+		Amount      int
+		Created_at  time.Time
+		Typee       int
+	}
+	products := []WallHist{}
+
+	if err != nil {
+		err = fmt.Errorf("failed to exec data: %w", err)
+
+		return
+	}
+
+	request, err := rep.Query(
+		ctx,
+		`
+		WITH wallet AS (
+			SELECT id AS wallet_id
+			FROM finance.wallets
+			WHERE user_id = $1
+		),
+		transact AS (
+			SELECT id, wallet_id, amount, created_at, user_2, typee
+			FROM finance.transactions
+			WHERE wallet_id = (SELECT wallet_id FROM wallet)
+			AND typee = $2
+		)
+		SELECT
+			transact.id,
+			COALESCE(users.avatar_path, '/home/'),
+			COALESCE(individual_user.name || ' ' || individual_user.patronymic, company_user.name_of_company) AS user_name,
+			transact.amount, 
+			transact.created_at, 
+			transact.typee
+		FROM 
+			transact
+		LEFT JOIN users.users ON users.id = transact.user_2
+		LEFT JOIN users.individual_user ON transact.user_2 = individual_user.user_id
+		LEFT JOIN users.company_user ON transact.user_2 = company_user.user_id;
+		`,
+
+		user_id,
+		typee)
+
+	errorr(err)
+
+	for request.Next() {
+		p := WallHist{}
+		err := request.Scan(
+			&p.ID,
+			&p.Avatar_path,
+			&p.User_name,
+			&p.Amount,
+			&p.Created_at,
+			&p.Typee,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		products = append(products, p)
+	}
+
+	for i := 0; i < len(products); i++ {
+		products[i].Avatar = ServeSpecificMediaBase64(rw, r, products[i].Avatar_path)
+
+		products[i].Avatar_path = ""
+	}
+
+	type Response struct {
+		Status  string     `json:"status"`
+		Data    []WallHist `json:"data,omitempty"`
+		Message string     `json:"message"`
+	}
+
+	if err != nil || request == nil {
+		response := Response{
+			Status:  "fatal",
+			Message: "Не прошла",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	response := Response{
+		Status:  "success",
+		Data:    products,
+		Message: "Транзакция прошла успешно",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+
+	return
+}
+
+func (repo *MyRepository) WalletListSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, r *http.Request, user_id int) (err error) {
+	type WallHist struct {
+		Total_balance int
+		Frozen_funds  int
+		Avatar_path   string
+		Avatar        string
+		User_name     *string
+	}
+	products := []WallHist{}
+
+	if err != nil {
+		err = fmt.Errorf("failed to exec data: %w", err)
+
+		return
+	}
+
+	request, err := rep.Query(
+		ctx,
+		`
+		WITH wallet AS (
+			SELECT id AS wallet_id, total_balance, frozen_funds
+			FROM finance.wallets
+			WHERE user_id = $1
+		)
+		SELECT
+			wallet.total_balance,
+			wallet.frozen_funds,
+			users.avatar_path,
+			COALESCE(individual_user.name || ' ' || individual_user.patronymic, company_user.name_of_company) AS user_name
+		FROM wallet
+		LEFT JOIN users.users ON users.id = $1
+		LEFT JOIN users.individual_user ON $1 = individual_user.user_id
+		LEFT JOIN users.company_user ON $1 = company_user.user_id;
+		`,
+
+		user_id)
+
+	errorr(err)
+
+	for request.Next() {
+		p := WallHist{}
+		err := request.Scan(
+			&p.Total_balance,
+			&p.Frozen_funds,
+			&p.Avatar_path,
+			&p.User_name,
+		)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		products = append(products, p)
+	}
+
+	for i := 0; i < len(products); i++ {
+		products[i].Avatar = ServeSpecificMediaBase64(rw, r, products[i].Avatar_path)
+
+		products[i].Avatar_path = ""
+	}
+
+	type Response struct {
+		Status  string     `json:"status"`
+		Data    []WallHist `json:"data,omitempty"`
+		Message string     `json:"message"`
+	}
+
+	if err != nil || request == nil {
+		response := Response{
+			Status:  "fatal",
+			Message: "Не прошла",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	response := Response{
+		Status:  "success",
+		Data:    products,
 		Message: "Транзакция прошла успешно",
 	}
 

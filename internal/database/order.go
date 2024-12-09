@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -24,218 +23,104 @@ func dateInterpreter(starts_at, ends_at time.Time) (int, float64) {
 	return days, hours
 }
 
-func (repo *MyRepository) RegisterOrderSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool,
-	ad_id,
-	renter_id,
-	total_price int,
-	starts_at,
-	ends_at time.Time,
-) (err error) {
+func (repo *MyRepository) RegOrderHourlySQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id, ads_id int, starts_at, ends_at time.Time, positionX, positionY float64) (err error) {
 	type Product struct {
-		AdID     int       `json:"ad_id"`
-		OrderID  int       `json:"order_id"`
-		Amount   int       `json:"amount"`
-		StartsAt time.Time `json:"starts_at"`
-		EndsAt   time.Time `json:"ends_at"`
+		Order_id             *int `json:"Order_id"`
+		Updated_frozen_funds *int `json:"Updated_frozen_funds"`
+		Booking_id           *int `json:"Booking_id"`
+		Transaction_id       *int `json:"Transaction_id"`
 	}
+
 	products := []Product{}
-
-	wallet_id, err := rep.Query(
-		ctx,
-		"SELECT id FROM Finance.wallets WHERE user_id = $1;",
-
-		renter_id,
-	)
-	var wallet_id_int int
-	for wallet_id.Next() {
-		err := wallet_id.Scan(&wallet_id_int)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	errorr(err)
-
-	user_2, err := rep.Query(
-		ctx,
-		"SELECT owner_id FROM Ads.ads WHERE id = $1;",
-
-		ad_id,
-	)
-	var user_2_int int
-	for user_2.Next() {
-		err := user_2.Scan(&user_2_int)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-	errorr(err)
-
-	var transaction_reg_and_id_int int
-	transaction_reg_and_id, err := rep.Query(
-		ctx,
-		"INSERT INTO Finance.transactions(wallet_id, amount, user_2, typee) VALUES($1, $2, $3, 3) RETURNING id;",
-
-		wallet_id_int,
-		total_price,
-		user_2_int,
-	)
-	for transaction_reg_and_id.Next() {
-		err := transaction_reg_and_id.Scan(&transaction_reg_and_id_int) // Сканируем значение в переменную id
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-	errorr(err)
 
 	request, err := rep.Query(
 		ctx,
 		`
-			WITH i AS (
-				INSERT INTO Orders.orders(ad_id, renter_id, total_price)
-				VALUES ($1, $2, $3)
-				RETURNING id, ad_id
-			),
-			b AS (
-				INSERT INTO Orders.bookings (order_id, starts_at, ends_at, amount, transaction_id)
-				SELECT i.id, $4, $5, $6, $7
-				FROM i
-				RETURNING order_id, starts_at, ends_at, amount, transaction_id
-			)
-			-- Здесь мы объединяем данные из CTE i (Orders.orders) и b (Orders.bookings)
-			SELECT i.ad_id, b.order_id, b.amount , b.starts_at, b.ends_at
-			FROM i, b;
+		WITH owner AS ( -- данные хозяина объявления
+			SELECT owner_id, hourly_rate FROM ads.ads WHERE id = $1
+		),
+		wallet AS ( -- данные арендатора
+			SELECT id AS wallet_id, total_balance FROM finance.wallets WHERE user_id = $2
+		), 
+		transact AS (
+			INSERT INTO finance.transactions (wallet_id, amount, typee, user_2)
+			SELECT (SELECT wallet_id FROM wallet),
+				(SELECT $4::timestamp::date - $3::timestamp::date)
+				* (SELECT hourly_rate FROM owner),
+				3,
+				(SELECT owner_id FROM owner)
+			WHERE (SELECT $4::timestamp::date - $3::timestamp::date)
+				* (SELECT hourly_rate FROM owner) <= (SELECT total_balance FROM wallet)
+			RETURNING id, amount
+		),
+		wallet_update AS (
+			UPDATE finance.wallets
+			SET frozen_funds = frozen_funds + (SELECT amount FROM transact),
+				total_balance = total_balance - (SELECT amount FROM transact)
+			WHERE user_id = $2 AND frozen_funds + (SELECT amount FROM transact) <= total_balance
+			RETURNING frozen_funds
+		),
+		orderr AS (
+			INSERT INTO orders.orders(position)
+			SELECT POINT($5, $6)
+			WHERE (SELECT $4::timestamp::date - $3::timestamp::date)
+				* (SELECT hourly_rate FROM owner) <= (SELECT total_balance FROM wallet)
+			RETURNING id
+		),
+		booking AS (
+			INSERT INTO orders.bookings(ads_id, starts_at, ends_at, transaction_id, typee, order_id)
+			SELECT $1, $3, $4,
+				(SELECT id FROM transact), 1, (SELECT id FROM orderr)
+			WHERE (SELECT $4::timestamp::date - $3::timestamp::date)
+				* (SELECT hourly_rate FROM owner) <= (SELECT total_balance FROM wallet)
+			RETURNING id
+		)
+		SELECT
+			(SELECT id FROM orderr) AS order_id,
+			(SELECT frozen_funds FROM wallet_update) AS updated_frozen_funds,
+			(SELECT id FROM booking) AS booking_id,
+			(SELECT id FROM transact) AS transaction_id;
 		`,
 
-		ad_id,
-		renter_id,
-		total_price,
+		ads_id,
+		user_id,
 		starts_at,
 		ends_at,
-		total_price,
-		transaction_reg_and_id_int,
+		positionX,
+		positionY,
 	)
 	errorr(err)
-
-	for request.Next() {
-		p := Product{}
-		err := request.Scan(
-			&p.AdID,
-			&p.OrderID,
-			&p.Amount,
-			&p.StartsAt,
-			&p.EndsAt,
-		)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-		products = append(products, Product{AdID: p.AdID, OrderID: p.OrderID, Amount: p.Amount, StartsAt: p.StartsAt, EndsAt: p.EndsAt})
-	}
-
-	type Response struct {
-		Status  string  `json:"status"`
-		Data    Product `json:"data,omitempty"`
-		Message string  `json:"message"`
-	}
-
-	if err != nil || len(products) == 0 {
-		response := Response{
-			Status:  "fatal",
-			Message: "Объявление не найдено",
-		}
-
-		rw.WriteHeader(http.StatusOK)
-		json.NewEncoder(rw).Encode(response)
-
-		return err
-	}
-
-	response := Response{
-		Status:  "success",
-		Data:    products[0],
-		Message: "Объявление показано",
-	}
-
-	rw.WriteHeader(http.StatusOK)
-	json.NewEncoder(rw).Encode(response)
-
-	return err
-}
-
-func (repo *MyRepository) RegBookingHourlySQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id, ads_id int, starts_at, ends_at time.Time) (err error) {
-	days, hours := dateInterpreter(starts_at, ends_at)
-
-	type Product struct {
-		Transaction_id       int
-		Booking_id           int
-		Updated_frozen_funds float64
-	}
-	products := []Product{}
-
-	request, err := rep.Query(
-		ctx,
-		`
-			WITH ads AS (
-				SELECT ad_id FROM orders.orders WHERE id = $1
-			),
-			owner AS (
-				SELECT owner_id, hourly_rate, daily_rate FROM ads.ads WHERE id = (SELECT ad_id FROM ads)
-			),
-			wallet AS (
-				SELECT id AS wallet_id FROM finance.wallets WHERE user_id = $2
-			), 
-			transact AS (
-				INSERT INTO finance.transactions(wallet_id, amount, typee, user_2) 
-				VALUES ((SELECT wallet_id FROM wallet),
-					$3 * (SELECT daily_rate FROM owner) + 
-					$4 * (SELECT hourly_rate FROM owner), 3, (SELECT owner_id FROM owner)) 
-				RETURNING id, amount
-			), 
-			booking AS (
-				INSERT INTO orders.bookings(order_id, starts_at, ends_at, amount, transaction_id) 
-				VALUES ($5, $6, $7, (SELECT amount FROM transact), (SELECT id FROM transact)) 
-				RETURNING id
-			),
-			wallet_update AS (
-				UPDATE finance.wallets
-				SET frozen_funds = frozen_funds + (SELECT amount FROM transact)
-				WHERE user_id = (SELECT owner_id FROM owner)
-				RETURNING frozen_funds
-			)
-			SELECT 
-				(SELECT id FROM transact) AS transaction_id,
-				(SELECT id FROM booking) AS booking_id,
-				(SELECT frozen_funds FROM wallet_update) AS updated_frozen_funds;
-		`,
-
-		//order_id,
-		user_id,
-		days,
-		hours,
-		//order_id,
-		starts_at,
-		ends_at)
-	errorr(err)
-
-	for request.Next() {
-		p := Product{}
-		err := request.Scan(
-			&p.Transaction_id,
-			&p.Booking_id,
-			&p.Updated_frozen_funds)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-
-		products = append(products, Product{Transaction_id: p.Transaction_id, Booking_id: p.Booking_id, Updated_frozen_funds: p.Updated_frozen_funds})
-	}
 
 	type Response struct {
 		Status  string    `json:"status"`
 		Data    []Product `json:"data,omitempty"`
 		Message string    `json:"message"`
+	}
+
+	if request == nil {
+		response := Response{
+			Status:  "fatal",
+			Message: "Не прошла",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	for request.Next() {
+		p := Product{}
+		err := request.Scan(
+			&p.Order_id,
+			&p.Updated_frozen_funds,
+			&p.Booking_id,
+			&p.Transaction_id)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		products = append(products, Product{Order_id: p.Order_id, Transaction_id: p.Transaction_id, Booking_id: p.Booking_id, Updated_frozen_funds: p.Updated_frozen_funds})
 	}
 
 	if err != nil || len(products) == 0 {
@@ -259,22 +144,151 @@ func (repo *MyRepository) RegBookingHourlySQL(ctx context.Context, rw http.Respo
 	return
 }
 
-func (repo *MyRepository) BiddingSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id, chat_id, global_rate int) (err error) {
+func (repo *MyRepository) RegOrderDailySQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id, ads_id int, starts_at, ends_at time.Time, positionX, positionY float64) (err error) {
+	type Product struct {
+		Order_id             *int `json:"Order_id"`
+		Updated_frozen_funds *int `json:"Updated_frozen_funds"`
+		Booking_id           *int `json:"Booking_id"`
+		Transaction_id       *int `json:"Transaction_id"`
+	}
+
+	products := []Product{}
+
+	request, err := rep.Query(
+		ctx,
+		`
+		WITH owner AS ( -- данные хозяина объявления
+			SELECT owner_id, daily_rate FROM ads.ads WHERE id = $1
+		),
+		wallet AS ( -- данные арендатора
+			SELECT id AS wallet_id, total_balance FROM finance.wallets WHERE user_id = $2
+		), 
+		transact AS (
+			INSERT INTO finance.transactions (wallet_id, amount, typee, user_2)
+			SELECT (SELECT wallet_id FROM wallet),
+				(SELECT $4::timestamp::date - $3::timestamp::date)
+				* (SELECT daily_rate FROM owner),
+				3,
+				(SELECT owner_id FROM owner)
+			WHERE (SELECT $4::timestamp::date - $3::timestamp::date)
+				* (SELECT daily_rate FROM owner) <= (SELECT total_balance FROM wallet)
+			RETURNING id, amount
+		),
+		wallet_update AS (
+			UPDATE finance.wallets
+			SET frozen_funds = frozen_funds + (SELECT amount FROM transact),
+				total_balance = total_balance - (SELECT amount FROM transact)
+			WHERE user_id = $2 AND frozen_funds + (SELECT amount FROM transact) <= total_balance
+			RETURNING frozen_funds
+		),
+		orderr AS (
+			INSERT INTO orders.orders(position)
+			SELECT POINT($5, $6)
+			WHERE (SELECT $4::timestamp::date - $3::timestamp::date)
+				* (SELECT daily_rate FROM owner) <= (SELECT total_balance FROM wallet)
+			RETURNING id
+		),
+		booking AS (
+			INSERT INTO orders.bookings(ads_id, starts_at, ends_at, transaction_id, typee, order_id)
+			SELECT $1,
+				$3,
+				$4,
+				(SELECT id FROM transact), 1, (SELECT id FROM orderr)
+			WHERE (SELECT $4::timestamp::date - $3::timestamp::date)
+				* (SELECT daily_rate FROM owner) <= (SELECT total_balance FROM wallet)
+			RETURNING id
+		)
+		SELECT
+			(SELECT id FROM orderr) AS order_id,
+			(SELECT frozen_funds FROM wallet_update) AS updated_frozen_funds,
+			(SELECT id FROM booking) AS booking_id,
+			(SELECT id FROM transact) AS transaction_id;
+		`,
+
+		ads_id,
+		user_id,
+		starts_at,
+		ends_at,
+		positionX,
+		positionY,
+	)
+	errorr(err)
+
+	type Response struct {
+		Status  string    `json:"status"`
+		Data    []Product `json:"data,omitempty"`
+		Message string    `json:"message"`
+	}
+
+	if request == nil {
+		response := Response{
+			Status:  "fatal",
+			Message: "Не прошла",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	for request.Next() {
+		p := Product{}
+		err := request.Scan(
+			&p.Order_id,
+			&p.Updated_frozen_funds,
+			&p.Booking_id,
+			&p.Transaction_id)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		products = append(products, Product{Order_id: p.Order_id, Transaction_id: p.Transaction_id, Booking_id: p.Booking_id, Updated_frozen_funds: p.Updated_frozen_funds})
+	}
+
+	if err != nil || len(products) == 0 {
+		response := Response{
+			Status:  "fatal",
+			Message: "Не прошла",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+	response := Response{
+		Status:  "success",
+		Data:    products,
+		Message: "Транзакция прошла успешно",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+	return
+}
+
+func (repo *MyRepository) BiddingSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, ads_id, global_rate, user_id int, start_at, end_at time.Time, positX, positY float64) (err error) {
 	// Выполняем SQL-запрос и проверяем ошибки
 	request, err := rep.Query(
 		ctx,
 		`
-		INSERT INTO Finance.bidding (chat_id, global_rate, type)
-		VALUES ($1, $2, 1)
+		WITH owner AS (
+			SELECT owner_id FROM ads.ads WHERE id = $1
+		)
+		INSERT INTO Finance.bidding (ads_id, renter_id, global_rate, start_at, end_at, position)
+		SELECT $1, $2, $3, $4, $5, POINT($6, $7)
+		WHERE (SELECT owner_id FROM owner) != $2
 		RETURNING id;
 		`,
-		chat_id,
+		ads_id,
+		user_id,
 		global_rate,
-	)
-	if err != nil {
-		errorr(err)
-		return err
-	}
+		start_at,
+		end_at,
+		positX,
+		positY)
+	errorr(err)
+
 	defer request.Close() // Закрываем запрос в конце выполнения функции
 
 	// Переменная для хранения возвращаемого id
@@ -319,77 +333,102 @@ func (repo *MyRepository) BiddingSQL(ctx context.Context, rw http.ResponseWriter
 	return nil
 }
 
-func (repo *MyRepository) RegBookingWithBiddingSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id, order_id, bidding_id int, starts_at, ends_at time.Time) (err error) {
+func (repo *MyRepository) RegOrderWithBiddingSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id, bidding_id int) (err error) {
 	type Product struct {
-		Transaction_id       int
-		Booking_id           int
-		Updated_frozen_funds float64
+		Order_id             *int `json:"Order_id"`
+		Updated_frozen_funds *int `json:"Updated_frozen_funds"`
+		Booking_id           *int `json:"Booking_id"`
+		Transaction_id       *int `json:"Transaction_id"`
 	}
+
 	products := []Product{}
 
 	request, err := rep.Query(
 		ctx,
 		`
-		WITH ads AS (
-			SELECT ad_id FROM orders.orders WHERE id = $1
+		WITH bidding AS (
+			SELECT bidding.global_rate, bidding.start_at, bidding.end_at, bidding.position, bidding.renter_id, ads.id AS ads_id
+			FROM finance.bidding, ads.ads WHERE ads.owner_id = $1 AND bidding.id = $2 AND ads.id = bidding.ads_id
 		),
-		owner AS (
-			SELECT owner_id FROM ads.ads WHERE id = (SELECT ad_id FROM ads)
+		ads_price AS (
+			SELECT hourly_rate FROM ads.ads WHERE id = (SELECT ads_id FROM bidding) AND owner_id = $1
 		),
 		wallet AS (
-			SELECT id AS wallet_id FROM finance.wallets WHERE user_id = $2
+			SELECT id AS wallet_id, total_balance FROM finance.wallets WHERE user_id = (SELECT renter_id FROM bidding)
 		),
-		amount AS (
-			SELECT global_rate FROM finance.bidding WHERE id = $3
-		), 
 		transact AS (
-			INSERT INTO finance.transactions(wallet_id, amount, typee, user_2) 
-			VALUES ((SELECT wallet_id FROM wallet), (SELECT global_rate FROM amount), 3, (SELECT owner_id FROM owner)) 
+			INSERT INTO finance.transactions (wallet_id, amount, typee, user_2)
+			SELECT (SELECT wallet_id FROM wallet),
+				(SELECT global_rate FROM bidding),
+				4,
+				$1
+			WHERE (SELECT global_rate FROM bidding) <= (SELECT total_balance FROM wallet)
 			RETURNING id, amount
-		), 
-		booking AS (
-			INSERT INTO orders.bookings(order_id, starts_at, ends_at, amount, transaction_id) 
-			VALUES ($4, $5, $6, (SELECT amount FROM transact), (SELECT id FROM transact)) 
-			RETURNING id
 		),
 		wallet_update AS (
 			UPDATE finance.wallets
-			SET frozen_funds = frozen_funds + (SELECT amount FROM transact)
-			WHERE user_id = (SELECT owner_id FROM owner)
+			SET frozen_funds = frozen_funds + (SELECT amount FROM transact),
+				total_balance = total_balance - (SELECT amount FROM transact)
+			WHERE user_id = (SELECT renter_id FROM bidding)
+			AND frozen_funds + (SELECT amount FROM transact) <= total_balance
 			RETURNING frozen_funds
+		),
+		orderr AS (
+			INSERT INTO orders.orders(position)
+			SELECT (SELECT position FROM bidding)
+			WHERE (SELECT global_rate FROM bidding) <= (SELECT total_balance FROM wallet)
+			RETURNING id
+		),
+		booking AS (
+			INSERT INTO orders.bookings(ads_id, starts_at, ends_at, transaction_id, typee, order_id)
+			SELECT (SELECT ads_id FROM bidding),
+				(SELECT start_at FROM bidding),
+				(SELECT end_at FROM bidding),
+				(SELECT id FROM transact), 1, (SELECT id FROM orderr)
+			WHERE (SELECT global_rate FROM bidding) <= (SELECT total_balance FROM wallet)
+			RETURNING id
 		)
-		SELECT 
-			(SELECT id FROM transact) AS transaction_id,
+		SELECT
+			(SELECT id FROM orderr) AS order_id,
+			(SELECT frozen_funds FROM wallet_update) AS updated_frozen_funds,
 			(SELECT id FROM booking) AS booking_id,
-			(SELECT frozen_funds FROM wallet_update) AS updated_frozen_funds;
+			(SELECT id FROM transact) AS transaction_id;
 		`,
 
-		order_id,
 		user_id,
-		bidding_id,
-		order_id,
-		starts_at,
-		ends_at)
+		bidding_id)
 	errorr(err)
-
-	for request.Next() {
-		p := Product{}
-		err := request.Scan(
-			&p.Transaction_id,
-			&p.Booking_id,
-			&p.Updated_frozen_funds)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-
-		products = append(products, Product{Transaction_id: p.Transaction_id, Booking_id: p.Booking_id, Updated_frozen_funds: p.Updated_frozen_funds})
-	}
 
 	type Response struct {
 		Status  string    `json:"status"`
 		Data    []Product `json:"data,omitempty"`
 		Message string    `json:"message"`
+	}
+
+	if request == nil {
+		response := Response{
+			Status:  "fatal",
+			Message: "Не прошла",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	for request.Next() {
+		p := Product{}
+		err := request.Scan(
+			&p.Order_id,
+			&p.Updated_frozen_funds,
+			&p.Booking_id,
+			&p.Transaction_id)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		products = append(products, Product{Order_id: p.Order_id, Transaction_id: p.Transaction_id, Booking_id: p.Booking_id, Updated_frozen_funds: p.Updated_frozen_funds})
 	}
 
 	if err != nil || len(products) == 0 {
@@ -413,79 +452,223 @@ func (repo *MyRepository) RegBookingWithBiddingSQL(ctx context.Context, rw http.
 	return
 }
 
-func (repo *MyRepository) RebookBookingSQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id, order_id int, starts_at, ends_at time.Time) (err error) {
-	days, hours := dateInterpreter(starts_at, ends_at)
-
+func (repo *MyRepository) RebookOrderHourlySQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id, order_id int, starts_at, ends_at time.Time) (err error) {
 	type Product struct {
-		Transaction_id       int
-		Booking_id           int
-		Updated_frozen_funds float64
+		Order_id             int  `json:"Order_id"`
+		Updated_frozen_funds *int `json:"Updated_frozen_funds"`
+		Booking_id           *int `json:"Booking_id"`
+		Transaction_id       *int `json:"Transaction_id"`
 	}
+
 	products := []Product{}
 
 	request, err := rep.Query(
 		ctx,
 		`
-			WITH ads AS (
-				SELECT ad_id FROM orders.orders WHERE id = $1
-			),
-			owner AS (
-				SELECT owner_id, hourly_rate, daily_rate FROM ads.ads WHERE id = (SELECT ad_id FROM ads)
-			),
-			wallet AS (
-				SELECT id AS wallet_id FROM finance.wallets WHERE user_id = $2
-			), 
-			transact AS (
-				INSERT INTO finance.transactions(wallet_id, amount, typee, user_2) 
-				VALUES ((SELECT wallet_id FROM wallet),
-					$3 * (SELECT daily_rate FROM owner) + 
-					$4 * (SELECT hourly_rate FROM owner), 3, (SELECT owner_id FROM owner)) 
-				RETURNING id, amount
-			), 
-			booking AS (
-				INSERT INTO orders.bookings(order_id, starts_at, ends_at, amount, transaction_id) 
-				VALUES ($5, $6, $7, (SELECT amount FROM transact), (SELECT id FROM transact)) 
-				RETURNING id
-			),
-			wallet_update AS (
-				UPDATE finance.wallets
-				SET frozen_funds = frozen_funds + (SELECT amount FROM transact)
-				WHERE user_id = (SELECT owner_id FROM owner)
-				RETURNING frozen_funds
-			)
-			SELECT 
-				(SELECT id FROM transact) AS transaction_id,
-				(SELECT id FROM booking) AS booking_id,
-				(SELECT frozen_funds FROM wallet_update) AS updated_frozen_funds;
+		WITH ads AS (
+			SELECT bookings.ads_id
+			FROM orders.bookings, ads.ads, finance.transactions, finance.wallets, users.users
+			WHERE bookings.order_id = $1 AND bookings.ads_id = ads.id AND
+				bookings.transaction_id = transactions.id AND transactions.wallet_id = wallets.id AND
+				wallets.user_id = users.id AND users.id = $2
+			LIMIT 1
+		),
+		owner AS ( -- данные хозяина объявления
+			SELECT owner_id, hourly_rate FROM ads.ads WHERE id = (SELECT ads_id FROM ads)
+		),
+		wallet AS ( -- данные арендатора
+			SELECT id AS wallet_id, total_balance FROM finance.wallets WHERE user_id = $2
+		), 
+		transact AS (
+			INSERT INTO finance.transactions (wallet_id, amount, typee, user_2)
+			SELECT (SELECT wallet_id FROM wallet),
+				(SELECT $4::timestamp::date - $3::timestamp::date)
+				* (SELECT hourly_rate FROM owner),
+				3,
+				(SELECT owner_id FROM owner)
+			WHERE (SELECT $4::timestamp::date - $3::timestamp::date)
+				* (SELECT hourly_rate FROM owner) <= (SELECT total_balance FROM wallet)
+			RETURNING id, amount
+		),
+		wallet_update AS (
+			UPDATE finance.wallets
+			SET frozen_funds = frozen_funds + (SELECT amount FROM transact),
+				total_balance = total_balance - (SELECT amount FROM transact)
+			WHERE user_id = $2 AND frozen_funds + (SELECT amount FROM transact) <= total_balance
+			RETURNING frozen_funds
+		),
+		booking AS (
+			INSERT INTO orders.bookings(ads_id, starts_at, ends_at, transaction_id, typee, order_id)
+			SELECT (SELECT ads_id FROM ads),
+				$3,
+				$4,
+				(SELECT id FROM transact), 2, $1
+			WHERE (SELECT $4::timestamp::date - $3::timestamp::date)
+				* (SELECT hourly_rate FROM owner) <= (SELECT total_balance FROM wallet)
+			RETURNING id
+		)
+		SELECT
+			(SELECT frozen_funds FROM wallet_update) AS updated_frozen_funds,
+			(SELECT id FROM booking) AS booking_id,
+			(SELECT id FROM transact) AS transaction_id;
 		`,
 
 		order_id,
 		user_id,
-		days,
-		hours,
-		order_id,
 		starts_at,
-		ends_at)
+		ends_at,
+	)
 	errorr(err)
-
-	for request.Next() {
-		p := Product{}
-		err := request.Scan(
-			&p.Transaction_id,
-			&p.Booking_id,
-			&p.Updated_frozen_funds)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-
-		products = append(products, Product{Transaction_id: p.Transaction_id, Booking_id: p.Booking_id, Updated_frozen_funds: p.Updated_frozen_funds})
-	}
 
 	type Response struct {
 		Status  string    `json:"status"`
 		Data    []Product `json:"data,omitempty"`
 		Message string    `json:"message"`
+	}
+
+	if request == nil {
+		response := Response{
+			Status:  "fatal",
+			Message: "Не прошла",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	for request.Next() {
+		p := Product{}
+		err := request.Scan(
+			&p.Updated_frozen_funds,
+			&p.Booking_id,
+			&p.Transaction_id)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		products = append(products, Product{Order_id: order_id, Transaction_id: p.Transaction_id, Booking_id: p.Booking_id, Updated_frozen_funds: p.Updated_frozen_funds})
+	}
+
+	if err != nil || len(products) == 0 {
+		response := Response{
+			Status:  "fatal",
+			Message: "Не прошла",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+	response := Response{
+		Status:  "success",
+		Data:    products,
+		Message: "Транзакция прошла успешно",
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	json.NewEncoder(rw).Encode(response)
+	return
+}
+
+func (repo *MyRepository) RebookOrderDailySQL(ctx context.Context, rw http.ResponseWriter, rep *pgxpool.Pool, user_id, order_id int, starts_at, ends_at time.Time) (err error) {
+	type Product struct {
+		Order_id             int  `json:"Order_id"`
+		Updated_frozen_funds *int `json:"Updated_frozen_funds"`
+		Booking_id           *int `json:"Booking_id"`
+		Transaction_id       *int `json:"Transaction_id"`
+	}
+
+	products := []Product{}
+
+	request, err := rep.Query(
+		ctx,
+		`
+		WITH ads AS (
+			SELECT bookings.ads_id
+			FROM orders.bookings, ads.ads, finance.transactions, finance.wallets, users.users
+			WHERE bookings.order_id = $1 AND bookings.ads_id = ads.id AND
+				bookings.transaction_id = transactions.id AND transactions.wallet_id = wallets.id AND
+				wallets.user_id = users.id AND users.id = $2
+			LIMIT 1
+		),
+		owner AS ( -- данные хозяина объявления
+			SELECT owner_id, daily_rate FROM ads.ads WHERE id = (SELECT ads_id FROM ads)
+		),
+		wallet AS ( -- данные арендатора
+			SELECT id AS wallet_id, total_balance FROM finance.wallets WHERE user_id = $2
+		), 
+		transact AS (
+			INSERT INTO finance.transactions (wallet_id, amount, typee, user_2)
+			SELECT (SELECT wallet_id FROM wallet),
+				(SELECT $4::timestamp::date - $3::timestamp::date)
+				* (SELECT daily_rate FROM owner),
+				3,
+				(SELECT owner_id FROM owner)
+			WHERE (SELECT $4::timestamp::date - $3::timestamp::date)
+				* (SELECT daily_rate FROM owner) <= (SELECT total_balance FROM wallet)
+			RETURNING id, amount
+		),
+		wallet_update AS (
+			UPDATE finance.wallets
+			SET frozen_funds = frozen_funds + (SELECT amount FROM transact),
+				total_balance = total_balance - (SELECT amount FROM transact)
+			WHERE user_id = $2 AND frozen_funds + (SELECT amount FROM transact) <= total_balance
+			RETURNING frozen_funds
+		),
+		booking AS (
+			INSERT INTO orders.bookings(ads_id, starts_at, ends_at, transaction_id, typee, order_id)
+			SELECT (SELECT ads_id FROM ads),
+				$3,
+				$4,
+				(SELECT id FROM transact), 2, $1
+			WHERE (SELECT $4::timestamp::date - $3::timestamp::date)
+				* (SELECT daily_rate FROM owner) <= (SELECT total_balance FROM wallet)
+			RETURNING id
+		)
+		SELECT
+			(SELECT frozen_funds FROM wallet_update) AS updated_frozen_funds,
+			(SELECT id FROM booking) AS booking_id,
+			(SELECT id FROM transact) AS transaction_id;
+		`,
+
+		order_id,
+		user_id,
+		starts_at,
+		ends_at,
+	)
+	errorr(err)
+
+	type Response struct {
+		Status  string    `json:"status"`
+		Data    []Product `json:"data,omitempty"`
+		Message string    `json:"message"`
+	}
+
+	if request == nil {
+		response := Response{
+			Status:  "fatal",
+			Message: "Не прошла",
+		}
+
+		rw.WriteHeader(http.StatusOK)
+		json.NewEncoder(rw).Encode(response)
+		return err
+	}
+
+	for request.Next() {
+		p := Product{}
+		err := request.Scan(
+			&p.Updated_frozen_funds,
+			&p.Booking_id,
+			&p.Transaction_id)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		products = append(products, Product{Order_id: order_id, Transaction_id: p.Transaction_id, Booking_id: p.Booking_id, Updated_frozen_funds: p.Updated_frozen_funds})
 	}
 
 	if err != nil || len(products) == 0 {
